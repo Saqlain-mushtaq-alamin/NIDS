@@ -1,0 +1,31 @@
+# configs/baseline.yaml — Phase 1 Baseline Configuration
+
+project:
+  name: "NIDS-Phase1-Baseline"
+  version: "0.1.0"
+
+reproducibility:
+  global_seed: 42
+  deterministic_cudnn: true
+
+data:
+  primary_dataset: "cic-ids-2017"
+  test_split_ratio: 0.2
+  val_split_ratio: 0.1
+  stratified: true
+
+features:
+  full_feature_set: true
+  behavior_only: false
+  drop_ip_port: true
+  normalization: "robust"
+
+training:
+  baseline_model: "xgboost"
+  n_estimators: 150
+  max_depth: 8
+  learning_rate: 0.05
+
+evaluation:
+  target_accuracy: 0.96
+  target_macro_f1: 0.90
