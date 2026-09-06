@@ -1,0 +1,25 @@
+# configs/cross_dataset.yaml — Phase 2 Cross-Dataset Configuration
+
+project:
+  name: "NIDS-Phase2-CrossDataset"
+  version: "0.1.0"
+
+reproducibility:
+  seeds: [42, 123, 456, 789, 1024]
+  global_seed: 42
+
+data:
+  train_datasets:
+    - "cic-ids-2017"
+    - "unsw-nb15"
+    - "lab-captured"
+  eval_matrix: true
+
+features:
+  modes:
+    full:
+      drop_ip_port: true
+      behavior_only: false
+    behavior_only:
+      drop_ip_port: true
+      behavior_only: true
