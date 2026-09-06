@@ -1,0 +1,45 @@
+# configs/default.yaml — Master experiment configuration
+
+project:
+  name: "NIDS-Cross-Domain-Generalization"
+  version: "0.1.0"
+  description: "Domain-Generalizable, Explainable, Real-Time Network Intrusion Detection System"
+
+reproducibility:
+  global_seed: 42
+  deterministic_cudnn: true
+  num_workers: 4
+
+data:
+  primary_dataset: "lycos-ids-2017"
+  cross_eval_datasets:
+    - "unsw-nb15"
+    - "lab-captured"
+  test_split_ratio: 0.2
+  val_split_ratio: 0.1
+  stratified: true
+
+features:
+  full_feature_set: true
+  behavior_only: false
+  drop_ip_port: true
+  normalization: "robust"
+
+training:
+  baseline_model: "xgboost"
+  batch_size: 4096
+  max_epochs: 100
+  early_stopping_patience: 10
+  learning_rate: 0.001
+  n_estimators: 100
+  max_depth: 6
+
+evaluation:
+  metrics: ["accuracy", "precision", "recall", "f1", "roc_auc", "macro_f1"]
+  per_class_report: true
+  cross_dataset_delta: true
+  latency_benchmark: true
+
+mlflow:
+  tracking_uri: "file:///d:/canvas/NIDS/experiments/mlruns"
+  experiment_name: "nids-baseline"
