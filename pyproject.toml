@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nids"
+version = "0.1.0"
+description = "A Domain-Generalizable, Explainable, Real-Time Network Intrusion Detection & Response System"
+authors = [{name = "NIDS Research Team"}]
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+pythonpath = ["."]
