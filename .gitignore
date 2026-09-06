@@ -1,0 +1,41 @@
+# Python & Byte-code
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Data & Heavy Artifacts
+data/raw/
+data/processed/
+data/splits/
+experiments/
+*.pcap
+*.joblib
+*.pt
+*.onnx
+*.pkl
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs & Temporal
+*.log
+mlruns/
+
+planning 
+results 
