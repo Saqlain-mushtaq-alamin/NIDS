@@ -1,0 +1,51 @@
+# configs/label_mappings.yaml — Standard Taxonomy Mapping
+
+taxonomy:
+  - Benign
+  - DoS
+  - DDoS
+  - PortScan
+  - BruteForce
+  - Botnet
+  - WebAttack
+  - Infiltration
+  - Other
+
+cic-ids-2017:
+  BENIGN: Benign
+  "DoS Hulk": DoS
+  "DoS GoldenEye": DoS
+  "DoS slowloris": DoS
+  "DoS Slowhttptest": DoS
+  DDoS: DDoS
+  PortScan: PortScan
+  "FTP-Patator": BruteForce
+  "SSH-Patator": BruteForce
+  Bot: Botnet
+  "Web Attack  Brute Force": WebAttack
+  "Web Attack  XSS": WebAttack
+  "Web Attack  Sql Injection": WebAttack
+  Infiltration: Infiltration
+  Heartbleed: DoS
+
+unsw-nb15:
+  Normal: Benign
+  DoS: DoS
+  Exploits: WebAttack
+  Fuzzers: Other
+  Generic: Other
+  Reconnaissance: PortScan
+  Analysis: PortScan
+  Backdoors: Botnet
+  Shellcode: Botnet
+  Worms: Botnet
+
+lab-captured:
+  Benign: Benign
+  DoS: DoS
+  DDoS: DDoS
+  PortScan: PortScan
+  BruteForce: BruteForce
+  WebAttack: WebAttack
+  Botnet: Botnet
+  Infiltration: Infiltration
