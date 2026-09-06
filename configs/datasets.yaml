@@ -1,0 +1,46 @@
+# configs/datasets.yaml — Dataset registry and metadata
+
+datasets:
+  cic-ids-2017:
+    name: "CIC-IDS2017"
+    source_url: "https://www.unb.ca/cic/datasets/ids-2017.html"
+    download_date: "2026-09-01"
+    local_dir: "data/raw/cic-ids-2017"
+    file_pattern: "*.csv"
+    label_column: " Label"  # Raw column contains leading space
+    documented_noise_rate: 0.0667
+    notes: "Raw baseline dataset. Standard UNB benchmark."
+
+  lycos-ids-2017:
+    name: "LYCOS-IDS2017 (Corrected)"
+    source_url: "https://dl.acm.org/doi/fullHtml/10.1145/3486622.3493973"
+    download_date: "2026-09-01"
+    local_dir: "data/raw/lycos-ids-2017"
+    file_pattern: "*.csv"
+    label_column: "Label"
+    notes: "Cleaned/relabeled version addressing CIC-IDS2017 label corruption."
+
+  unsw-nb15:
+    name: "UNSW-NB15"
+    source_url: "https://research.unsw.edu.au/projects/unsw-nb15-dataset"
+    download_date: "2026-09-01"
+    local_dir: "data/raw/unsw-nb15"
+    file_pattern: "*.csv"
+    label_column: "attack_cat"
+    notes: "Cross-domain evaluation dataset."
+
+  ctu-13:
+    name: "CTU-13"
+    source_url: "https://www.stratosphereips.org/datasets-ctu13"
+    download_date: "2026-09-01"
+    local_dir: "data/raw/ctu-13"
+    file_pattern: "*.csv"
+    label_column: "label"
+    notes: "Botnet C2 and encrypted traffic benchmark dataset."
+
+  lab-captured:
+    name: "Self-Captured Home-Lab Dataset"
+    local_dir: "data/lab_captures"
+    file_pattern: "*.csv"
+    label_column: "label"
+    notes: "Captured in VirtualBox lab environment with Kali attacker VM."
