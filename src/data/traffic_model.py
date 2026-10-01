@@ -182,6 +182,21 @@ PROFILES: dict[str, BehaviorProfile] = {
         protocols=(6,),
         difficulty=1.25,
     ),
+    # Catch-all bucket: UNSW-NB15 Fuzzers/Generic land here.  Deliberately a
+    # broad mixture so the class stays genuinely hard.
+    "Other": BehaviorProfile(
+        name="Other",
+        fwd_packets=(1, 14),
+        bwd_packets=(0, 10),
+        fwd_length=(300.0, 340.0, 0.0, 3000.0),
+        bwd_length=(520.0, 620.0, 0.0, 5000.0),
+        iat_mean_us=(15_000.0, 20_000.0),
+        duration_us=(1_800_000.0, 2_600_000.0, 500.0, 40_000_000.0),
+        flags={"S": 0.95, "A": 1.0, "P": 0.7, "R": 0.08, "F": 0.2},
+        dst_ports=(80, 443, 22, 21, 53, 445, 8080),
+        protocols=(6,),
+        difficulty=2.6,
+    ),
 }
 
 
@@ -236,10 +251,14 @@ def sample_flow(rng: np.random.Generator, label: str) -> dict:
     )
     duration = max(duration, iat_mean * max(n_fwd + n_bwd - 1, 0))
 
-    timestamps = np.sort(
-        np.clip(np.cumsum(rng.normal(iat_mean, iat_mean * 0.35, size=n_fwd + n_bwd)),
-                0.0, duration)
-    )
+    timestamps = np.cumsum(rng.normal(iat_mean, iat_mean * 0.35, size=n_fwd + n_bwd))
+    timestamps = np.clip(timestamps, 0.0, None)
+    # Scale so the flow spans exactly `duration`.  The relative inter-arrival
+    # structure is preserved, and a pcap-derived flow_duration therefore matches
+    # this one exactly (see src/data/feature_extractor._flow_to_record).
+    span = float(timestamps[-1]) if timestamps.size and timestamps[-1] > 0 else 0.0
+    if span > 0:
+        timestamps = timestamps * (duration / span)
     fwd_times = timestamps[:n_fwd].tolist()
     bwd_times = timestamps[n_fwd:].tolist()
 
@@ -281,7 +300,6 @@ def iat_statistics(times: list[float]) -> tuple[float, float]:
     deltas = np.diff(ordered) * 1_000_000.0
     return float(np.mean(deltas)), float(np.std(deltas))
 
-
 def aggregate_flow(flow: dict) -> dict:
     """
     Reduce a sampled flow into the canonical feature dictionary.
@@ -298,7 +316,6 @@ def aggregate_flow(flow: dict) -> dict:
     fwd_iat_mean, fwd_iat_std = iat_statistics(flow["fwd_times"])
     bwd_iat_mean, bwd_iat_std = iat_statistics(flow["bwd_times"])
     flow_iat_mean, flow_iat_std = iat_statistics(flow["fwd_times"] + flow["bwd_times"])
-
     duration_us = float(flow["duration_us"])
     seconds = duration_us / 1_000_000.0
     flags = flow["flags"]
@@ -326,7 +343,9 @@ def aggregate_flow(flow: dict) -> dict:
         "flow_iat_mean": flow_iat_mean,
         "flow_iat_std": flow_iat_std,
         "fwd_iat_mean": fwd_iat_mean,
+        "fwd_iat_std": fwd_iat_std,
         "bwd_iat_mean": bwd_iat_mean,
+        "bwd_iat_std": bwd_iat_std,
         "down_up_ratio": (bwd_bytes / fwd_bytes) if fwd_bytes else 0.0,
         "syn_flag_count": _count(FLAG_SYN),
         "ack_flag_count": _count(FLAG_ACK),
