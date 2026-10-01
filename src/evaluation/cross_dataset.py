@@ -283,19 +283,38 @@ class CrossDatasetEvaluator:
         return frame
 
     def _build_preprocessor(self, train_dataset: str) -> Preprocessor:
-        if self.preprocessor_template is not None:
+        """
+        Build a *fresh* preprocessor for one pair, from the caller's template.
+
+        A fresh instance per pair is what keeps fitted state (medians, scaler,
+        feature list) from leaking between cells of the matrix.  The template's
+        class is preserved so a caller can subclass ``Preprocessor`` to record or
+        validate behaviour; if that subclass does not accept the standard
+        arguments we fall back to the base class.
+        """
+        if self.preprocessor_template is None:
             return Preprocessor(
-                drop_ip_port=self.preprocessor_template.drop_ip_port,
-                normalization=self.preprocessor_template.normalization,
-                feature_mode=self.preprocessor_template.feature_mode,
-                variance_threshold=self.preprocessor_template.variance_threshold,
+                drop_ip_port=True,
+                normalization=self.normalization,
+                feature_mode=self.feature_mode,
                 dataset=train_dataset,
             )
-        return Preprocessor(
-            drop_ip_port=True,
-            normalization=self.normalization,
-            feature_mode=self.feature_mode,
-            dataset=train_dataset,
+
+        template = self.preprocessor_template
+        factory = type(template)
+        for candidate in (factory, Preprocessor):
+            try:
+                return candidate(
+                    drop_ip_port=template.drop_ip_port,
+                    normalization=template.normalization,
+                    feature_mode=template.feature_mode,
+                    variance_threshold=template.variance_threshold,
+                    dataset=train_dataset,
+                )
+            except TypeError:
+                continue
+        raise CrossDatasetError(
+            f"Cannot construct a preprocessor from template of type {factory.__name__}"
         )
 
     def _build_model(self):
