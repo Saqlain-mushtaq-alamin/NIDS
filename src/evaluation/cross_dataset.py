@@ -487,8 +487,9 @@ class CrossDatasetEvaluator:
             results: Matrix from :meth:`run_full_matrix`.
 
         Returns:
-            DataFrame indexed by ``"A→B"`` with the train cell's in-domain
-            reference and the resulting delta.
+            DataFrame indexed by ``"A->B"`` (ASCII, so the index survives CSV
+            round-trips and console printing on Windows) with the train cell's
+            in-domain reference and the resulting delta.
         """
         required = {"train_dataset", "test_dataset", "macro_f1"}
         missing = required - set(results.columns)
@@ -515,7 +516,7 @@ class CrossDatasetEvaluator:
             reference = diagonal.get(train_name)
             delta = (reference - cross_f1) if reference is not None else float("nan")
             records.append({
-                "pair": f"{train_name}→{test_name}",
+                "pair": f"{train_name}->{test_name}",
                 "train_dataset": train_name,
                 "test_dataset": test_name,
                 "in_domain": train_name == test_name,
