@@ -169,7 +169,7 @@ def _flow_to_packets(flow: dict, src_ip: str, dst_ip: str, src_port: int,
             l4 = _tcp_segment(sport, dport, flags, payload, sport + dport)
         else:
             l4 = _udp_datagram(sport, dport, payload)
-        ip = _ipv4_to_bytes(src, dst, protocol, len(l4), ident_base)
+        ip = _ipv4_to_bytes(src, dst, protocol, len(l4), ident_base) + l4
         return start_epoch + offset_us / 1_000_000.0, _ethernet_frame(src_mac, dst_mac, ip)
 
     packets = []
