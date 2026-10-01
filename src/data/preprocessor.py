@@ -62,8 +62,9 @@ IDENTITY_COLUMNS: frozenset[str] = frozenset({
     "src_ip", "dst_ip", "src_port", "dst_port",
     "source_ip", "destination_ip", "source_port", "destination_port",
     "source ip", "destination ip", "source port", "destination port",
-    "srcip", "dstip", "sport", "dsport", "protocol", "proto",
-    "id", "uid", "flow id", "flow_id", "timestamp", "stime", "ltime",
+    "srcip", "dstip", "sport", "dsport", "dport", "protocol", "proto",
+    "id", "uid", "flow id", "flow_id", "timestamp", "timestamp_start",
+    "timestamp_end", "stime", "ltime", "session_id", "session",
 })
 
 
@@ -228,7 +229,8 @@ class Preprocessor:
         if not self.feature_names_:
             return np.empty((len(frame), 0), dtype=np.float64)
         aligned = frame.reindex(columns=self.feature_names_)
-        values = aligned.to_numpy(dtype=np.float64, na_value=np.nan)
+        values = np.array(aligned.to_numpy(dtype=np.float64, na_value=np.nan),
+                          dtype=np.float64, copy=True)
         if self.medians_ is not None:
             bad = np.where(~np.isfinite(values))
             values[bad] = np.take(self.medians_, bad[1])
