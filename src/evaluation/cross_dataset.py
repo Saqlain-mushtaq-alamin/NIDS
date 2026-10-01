@@ -592,16 +592,64 @@ class CrossDatasetEvaluator:
         }
 
     # -- reporting ----------------------------------------------------------
+    def _report_table(self, results: pd.DataFrame) -> pd.DataFrame:
+        """
+        Collapse a (possibly multi-seed) matrix to one row per ordered pair.
+
+        Cross-domain cells are scored once per seed, so the per-pair row reports
+        the mean and spread across seeds together with the in-domain reference
+        and the resulting delta.
+        """
+        seeds = sorted(results["seed"].unique().tolist())
+        rows = []
+        for (train_name, test_name), group in results.groupby(
+            ["train_dataset", "test_dataset"], sort=False
+        ):
+            rows.append({
+                "pair": f"{train_name}->{test_name}",
+                "train_dataset": train_name,
+                "test_dataset": test_name,
+                "in_domain": train_name == test_name,
+                "n_seeds": int(group["seed"].nunique()),
+                "seeds": seeds,
+                "accuracy": float(group["accuracy"].mean()),
+                "precision": float(group["precision"].mean()),
+                "recall": float(group["recall"].mean()),
+                "f1": float(group["f1"].mean()),
+                "macro_f1": float(group["macro_f1"].mean()),
+                "macro_f1_std": (float(group["macro_f1"].std(ddof=1))
+                                 if group["macro_f1"].size > 1 else 0.0),
+                "test_coverage": float(group["test_coverage"].mean()),
+                "n_features": int(group["n_train_features"].iloc[0]),
+                "n_train": int(group["n_train"].mean()),
+                "n_test_evaluated": int(group["n_test_evaluated"].mean()),
+                "n_test_total": int(group["n_test_total"].mean()),
+                "shared_labels": str(group["shared_labels"].iloc[0]),
+                "test_only_labels": str(group["test_only_labels"].iloc[0]),
+            })
+
+        table = pd.DataFrame(rows)
+        diagonal = {row["train_dataset"]: row["macro_f1"]
+                    for _, row in table.iterrows() if row["in_domain"]}
+        table["in_domain_macro_f1"] = table["train_dataset"].map(diagonal)
+        table["f1_delta"] = np.where(
+            table["in_domain"], 0.0, table["in_domain_macro_f1"] - table["macro_f1"]
+        )
+        return table
+
     def generate_report(self, results: pd.DataFrame, output_path: Path | str,
                         deltas: Optional[pd.DataFrame] = None,
                         extra_notes: Optional[Sequence[str]] = None) -> Path:
         """
         Write a markdown report with the matrix, deltas and interpretation.
 
+        Multi-seed inputs are aggregated to one row per ordered pair (mean over
+        seeds plus the spread), so the table stays readable.
+
         Args:
             results: Matrix from :meth:`run_full_matrix`.
             output_path: Destination ``.md`` path.
-            deltas: Optional precomputed delta table.
+            deltas: Optional precomputed delta table; recomputed when omitted.
             extra_notes: Extra lines appended under "Notes".
 
         Returns:
@@ -610,85 +658,98 @@ class CrossDatasetEvaluator:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        deltas = self.compute_f1_delta(results) if deltas is None else deltas
+        table = self._report_table(results)
         summary = self.summarize(results)
+        seeds = table["seeds"].iloc[0]
+        n_seeds = table["n_seeds"].iloc[0]
+        diagonal = table[table["in_domain"]]["macro_f1"].mean()
+        off = table[~table["in_domain"]]["macro_f1"].mean()
+        delta = diagonal - off
+        retention = f"{off / diagonal:.1%}" if diagonal else "n/a"
+        retention_sentence = (
+            f"({retention} of in-domain F1 retained)" if diagonal else ""
+        )
+        n_off = int((~table["in_domain"]).sum())
+        n_off_worse = int((table.loc[~table["in_domain"], "f1_delta"] > 0).sum())
 
         lines = [
-            f"# Cross-Dataset Generalization Report — `{self.feature_mode}` features",
+            f"# Cross-Dataset Generalization Report - `{self.feature_mode}` features",
             "",
-            f"* Model: `{summary['model']}`  |  Seed: `{summary['seed']}`  |  "
+            f"* Model: `{summary['model']}`  |  Feature mode: `{self.feature_mode}`  |  "
             f"Datasets: {', '.join(summary['datasets'])}",
-            f"* Cells evaluated: {summary['n_cells']} "
-            f"({summary['n_datasets']} datasets, all ordered pairs incl. diagonal)",
+            f"* Seeds: {', '.join(str(s) for s in seeds)} ({n_seeds} independent passes)",
+            f"* Pairs: {len(table)} ordered pairs "
+            f"({len(summary['datasets'])} datasets, diagonal included)",
             "",
             "## Headline",
             "",
             "| Quantity | Value |",
             "|---|---|",
-            f"| Mean in-domain macro-F1 | {summary['in_domain_macro_f1_mean']:.4f} |",
-            f"| Mean cross-domain macro-F1 | {summary['cross_domain_macro_f1_mean']:.4f} |",
-            f"| Mean F1 delta (in − cross) | **{summary['mean_f1_delta']:.4f}** |",
-            f"| Cross-domain F1 retention | {summary['cross_f1_retention']:.1%} |",
+            f"| Mean in-domain macro-F1 | {diagonal:.4f} |",
+            f"| Mean cross-domain macro-F1 | {off:.4f} |",
+            f"| Mean F1 delta (in - cross) | **{delta:.4f}** |",
+            f"| Cross-domain F1 retention | {retention} |",
             f"| Mean test-label coverage | {summary['mean_test_coverage']:.1%} |",
             f"| Cross-domain worse than in-domain | "
             f"{'YES' if summary['cross_worse_than_in_domain'] else 'NO'} |",
+            f"| Cross-domain pairs with a negative delta | {n_off_worse} / {n_off} |",
+            "",
+            "Values are means over seeds; `+/-` is the sample standard deviation "
+            "across seeds.",
             "",
             "## Full matrix",
             "",
-            "| Train | Test | In-domain | ACC | P | R | F1 | macro-F1 | ΔF1 | Test cov. | Feat. |",
-            "|---|---|---|---|---|---|---|---|---|---|---|",
+            "| Train | Test | In-domain | ACC | P | R | F1 | macro-F1 | "
+            "In-domain ref | dF1 | Test cov. | Feat. |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|",
         ]
 
-        for pair, row in deltas.iterrows():
-            feature_count = results[
-                (results["train_dataset"] == row["train_dataset"])
-                & (results["test_dataset"] == row["test_dataset"])
-            ]["n_train_features"].iloc[0]
-            coverage = results[
-                (results["train_dataset"] == row["train_dataset"])
-                & (results["test_dataset"] == row["test_dataset"])
-            ]["test_coverage"].iloc[0]
-            in_domain = "yes" if row["in_domain"] else "no"
-            delta_text = f"{row['f1_delta']:.4f}" if not row["in_domain"] else "—"
+        for _, row in table.iterrows():
+            delta_text = f"{row['f1_delta']:+.4f}" if not row["in_domain"] else "ref"
             lines.append(
-                f"| {row['train_dataset']} | {row['test_dataset']} | {in_domain} | "
-                f"{row['accuracy']:.4f} | — | {row['recall']:.4f} | {row['f1']:.4f} | "
-                f"{row['cross_domain_macro_f1']:.4f} | {delta_text} | "
-                f"{coverage:.0%} | {int(feature_count)} |"
+                f"| {row['train_dataset']} | {row['test_dataset']} | "
+                f"{'yes' if row['in_domain'] else 'no'} | "
+                f"{row['accuracy']:.4f} | {row['precision']:.4f} | "
+                f"{row['recall']:.4f} | {row['f1']:.4f} | "
+                f"{row['macro_f1']:.4f} +/-{row['macro_f1_std']:.4f} | "
+                f"{row['in_domain_macro_f1']:.4f} | {delta_text} | "
+                f"{row['test_coverage']:.0%} | {int(row['n_features'])} |"
             )
 
         lines += [
             "",
             "## Per-dataset detail",
             "",
-            "| Train | Test | Shared labels | Test-only labels | Test rows evaluated | Warnings |",
+            "| Train | Test | Shared labels | Test-only labels | Test rows evaluated | Note |",
             "|---|---|---|---|---|---|",
         ]
 
-        for _, row in results.iterrows():
-            shared = row["shared_labels"].replace("|", ", ") or "—"
-            only = row["test_only_labels"].replace("|", ", ") or "—"
-            warning = "label subset" if row["test_coverage"] < 1.0 else "—"
+        for _, row in table.iterrows():
+            shared = row["shared_labels"].replace("|", ", ") or "-"
+            only = row["test_only_labels"].replace("|", ", ") or "-"
+            note = "label subset excluded" if row["test_coverage"] < 1.0 else "-"
             lines.append(
                 f"| {row['train_dataset']} | {row['test_dataset']} | {shared} | "
                 f"{only} | {int(row['n_test_evaluated']):,} / "
-                f"{int(row['n_test_total']):,} | {warning} |"
+                f"{int(row['n_test_total']):,} | {note} |"
             )
 
         lines += [
             "",
             "## Interpretation",
             "",
-            f"The mean macro-F1 falls from {summary['in_domain_macro_f1_mean']:.4f} "
-            f"in-domain to {summary['cross_domain_macro_f1_mean']:.4f} "
-            f"cross-domain, a delta of {summary['mean_f1_delta']:.4f} "
-            f"({summary['cross_f1_retention']:.1%} of in-domain F1 retained).",
+            f"The mean macro-F1 falls from {diagonal:.4f} in-domain to {off:.4f} "
+            f"cross-domain, a delta of {delta:.4f} {retention_sentence}.",
             "",
-            "`ΔF1` is measured against the diagonal cell of the same training "
-            "dataset, so it isolates the transfer cost from the in-domain fit "
-            "quality. Cells with `Test cov. < 100%` are scored only on labels the "
-            "model was trained to emit; the excluded rows are reported, never "
-            "silently dropped.",
+            "The in-domain reference for a pair `A->B` is the diagonal cell `A->A`: "
+            "the same model family and the same feature space, evaluated on "
+            "held-out data from the training domain. dF1 therefore isolates the "
+            "cost of transfer from the quality of the in-domain fit.",
+            "",
+            "Cells with `Test cov. < 100%` are scored only on labels the model was "
+            "trained to emit; the excluded rows are listed above rather than "
+            "silently dropped. Predictions that fall outside the trained label set "
+            "are counted as errors.",
             "",
         ]
 
