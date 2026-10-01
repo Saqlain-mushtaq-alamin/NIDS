@@ -10,6 +10,10 @@ from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import train_test_split
 import joblib
 
+from src.utils.pandas_compat import apply_pandas_compat, as_object_array
+
+apply_pandas_compat()
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
