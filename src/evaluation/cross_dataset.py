@@ -638,7 +638,6 @@ class CrossDatasetEvaluator:
         return table
 
     def generate_report(self, results: pd.DataFrame, output_path: Path | str,
-                        deltas: Optional[pd.DataFrame] = None,
                         extra_notes: Optional[Sequence[str]] = None) -> Path:
         """
         Write a markdown report with the matrix, deltas and interpretation.
@@ -649,7 +648,6 @@ class CrossDatasetEvaluator:
         Args:
             results: Matrix from :meth:`run_full_matrix`.
             output_path: Destination ``.md`` path.
-            deltas: Optional precomputed delta table; recomputed when omitted.
             extra_notes: Extra lines appended under "Notes".
 
         Returns:
