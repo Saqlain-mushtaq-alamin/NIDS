@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.utils.logging_setup import setup_logger
-from src.data.lab_simulator import build_lab_capture, generate_lab_capture
+from src.data.lab_simulator import build_lab_dataset
 from src.data.feature_extractor import extract_lab_features
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -68,7 +68,7 @@ def main() -> int:
             "containing SYNTHETIC packets, not recordings from a physical lab. "
             "See data/lab_captures/PROVENANCE.md."
         )
-        summary, frame = build_lab_capture(
+        summary, frame = build_lab_dataset(
             output_dir, flows_per_session=args.flows, seed=args.seed,
             csv_name=args.csv_name, mode=args.mode,
         )
