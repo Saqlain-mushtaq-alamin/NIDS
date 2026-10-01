@@ -232,7 +232,8 @@ def extract_canonical_feature(df: pd.DataFrame, dataset: str, feature: str) -> p
         text = df[name].astype("string").str.upper()
         total = pd.Series(0.0, index=df.index, dtype=np.float64)
         for letter in letters:
-            total = total + text.str.count(letter, regex=False).astype(np.float64)
+            counts = text.map(lambda value, ch=letter: str(value).count(ch))
+            total = total + counts.astype(np.float64)
         return total
 
     if kind == "ratio":
@@ -333,7 +334,9 @@ def iter_pcap_packets(path: Path) -> Iterable[tuple[float, bytes]]:
                 "`editcap -F pcap in.pcapng out.pcap`."
             )
 
-        _, _, _, _, _, linktype = struct.unpack(endian + "IHHiIII", header)
+        # magic, version_major, version_minor, thiszone, sigfigs, snaplen, network
+        _, _, _, _, _, _, linktype = struct.unpack(endian + "IHHiIII", header)
+
         if linktype not in (1, 0, 12, 101):
             raise ValueError(
                 f"{path}: unsupported link type {linktype}; only Ethernet (1), "
@@ -411,27 +414,39 @@ def _parse_ipv4_tcp_udp(frame: bytes) -> Optional[dict]:
 
 
 def _flow_key(packet: dict) -> tuple:
-    """Direction-normalised 5-tuple so both directions share one flow record."""
+    """
+    Direction-independent 5-tuple so both directions share one flow record.
+
+    The key only identifies *which* flow a packet belongs to; it deliberately
+    says nothing about direction.  Direction is decided separately, by which
+    packet was seen first (the CICFlowMeter convention).
+    """
     a = (packet["src_ip"], packet["src_port"])
     b = (packet["dst_ip"], packet["dst_port"])
-    first = a if a <= b else b
-    return (first[0], first[1], b[0], b[1], packet["protocol"])
+    first, second = (a, b) if a <= b else (b, a)
+    return (first[0], first[1], second[0], second[1], packet["protocol"])
 
 
 def pcap_to_flows(paths: Iterable[Path], src_port: Optional[int] = None,
                   dst_port: Optional[int] = None,
                   src_ip: Optional[str] = None,
-                  dst_ip: Optional[str] = None) -> pd.DataFrame:
+                  dst_ip: Optional[str] = None,
+                  scope_per_file: bool = True) -> pd.DataFrame:
     """
     Convert PCAP capture(s) into canonical flow-level features.
 
-    Each flow is aggregated per direction, and the resulting frame carries the
-    canonical schema plus the TCP/UDP flag counts.
+    A flow's forward direction is the direction of the **first packet seen** for
+    that 5-tuple, matching CICFlowMeter/LycoSTand.  Endpoint filters therefore
+    apply to the initiating direction.
 
     Args:
         paths: One path or an iterable of ``.pcap`` paths.
         src_port / dst_port / src_ip / dst_ip: Optional filters, applied to the
             *initiating* direction of each flow (i.e. the first packet seen).
+        scope_per_file: Treat each file as an independent capture.  Leave this
+            ``True`` whenever several captures are processed together, otherwise
+            identical 5-tuples from different sessions merge into one bogus
+            multi-hour "flow".
 
     Returns:
         DataFrame with the canonical feature columns and
@@ -444,7 +459,7 @@ def pcap_to_flows(paths: Iterable[Path], src_port: Optional[int] = None,
 
     flows: "OrderedDict[tuple, dict]" = OrderedDict()
 
-    for path in paths:
+    for file_index, path in enumerate(paths):
         path = Path(path)
         for timestamp, frame in iter_pcap_packets(path):
             packet = _parse_ipv4_tcp_udp(frame)
@@ -452,29 +467,25 @@ def pcap_to_flows(paths: Iterable[Path], src_port: Optional[int] = None,
                 continue
 
             key = _flow_key(packet)
+            if scope_per_file:
+                key = (file_index,) + key
             flow = flows.get(key)
             if flow is None:
-                forward = (packet["src_ip"], packet["src_port"]) <= (
-                    packet["dst_ip"], packet["dst_port"]
-                )
-                initiator = packet if forward else {
-                    "src_ip": packet["dst_ip"], "src_port": packet["dst_port"],
-                    "dst_ip": packet["src_ip"], "dst_port": packet["src_port"],
-                }
-                if src_port is not None and initiator["src_port"] != src_port:
+                # First packet seen defines the forward direction.
+                if src_port is not None and packet["src_port"] != src_port:
                     continue
-                if dst_port is not None and initiator["dst_port"] != dst_port:
+                if dst_port is not None and packet["dst_port"] != dst_port:
                     continue
-                if src_ip is not None and initiator["src_ip"] != src_ip:
+                if src_ip is not None and packet["src_ip"] != src_ip:
                     continue
-                if dst_ip is not None and initiator["dst_ip"] != dst_ip:
+                if dst_ip is not None and packet["dst_ip"] != dst_ip:
                     continue
                 flow = {
-                    "src_ip": initiator["src_ip"],
-                    "src_port": int(initiator["src_port"]),
-                    "dst_ip": initiator["dst_ip"],
-                    "dst_port": int(initiator["dst_port"]),
-                    "protocol": initiator["protocol"],
+                    "src_ip": packet["src_ip"],
+                    "src_port": int(packet["src_port"]),
+                    "dst_ip": packet["dst_ip"],
+                    "dst_port": int(packet["dst_port"]),
+                    "protocol": packet["protocol"],
                     "fwd_times": [],
                     "fwd_lengths": [],
                     "bwd_times": [],
@@ -487,8 +498,9 @@ def pcap_to_flows(paths: Iterable[Path], src_port: Optional[int] = None,
                 }
                 flows[key] = flow
 
-            forward = (packet["src_ip"], packet["src_port"]) <= (
-                packet["dst_ip"], packet["dst_port"]
+            forward = (
+                packet["src_ip"] == flow["src_ip"]
+                and packet["src_port"] == flow["src_port"]
             )
             if forward:
                 flow["fwd_times"].append(timestamp)
@@ -524,6 +536,21 @@ def _safe_stat(values: list[float]) -> float:
     return float(np.std(np.asarray(values, dtype=np.float64)))
 
 
+def _iat_statistics(times: list[float]) -> tuple[float, float]:
+    """
+    Return ``(mean, std)`` of intra-flow inter-arrival times, in microseconds.
+
+    Matches :func:`src.data.traffic_model.iat_statistics` exactly so a flow that
+    is simulated and then round-tripped through a pcap yields identical
+    canonical feature values.
+    """
+    if len(times) < 2:
+        return (0.0, 0.0)
+    ordered = np.sort(np.asarray(times, dtype=np.float64))
+    deltas = np.diff(ordered) * 1_000_000.0
+    return float(np.mean(deltas)), float(np.std(deltas))
+
+
 def _flow_to_record(flow: dict) -> dict:
     """Aggregate one flow's packet list into canonical features."""
     fwd_times = flow["fwd_times"]
@@ -541,16 +568,9 @@ def _flow_to_record(flow: dict) -> dict:
     bwd_bytes = float(sum(bwd_lengths))
     total_packets = len(all_times)
 
-    def _iat_std(times: list[float]) -> float:
-        if len(times) < 3:
-            return 0.0
-        ordered = sorted(times)
-        deltas = np.diff(np.asarray(ordered, dtype=np.float64))
-        return float(np.std(deltas) * 1_000_000.0)
-
-    flow_iat = _iat_std(all_times)
-    fwd_iat = _iat_std(fwd_times)
-    bwd_iat = _iat_std(bwd_times)
+    flow_iat_mean, flow_iat_std = _iat_statistics(all_times)
+    fwd_iat_mean, _ = _iat_statistics(fwd_times)
+    bwd_iat_mean, _ = _iat_statistics(bwd_times)
 
     return {
         "flow_duration": duration_us,
@@ -569,10 +589,10 @@ def _flow_to_record(flow: dict) -> dict:
         "bwd_packet_length_std": _safe_stat(bwd_lengths),
         "packet_length_mean": float(np.mean(all_lengths)) if all_lengths else 0.0,
         "packet_length_std": _safe_stat(all_lengths),
-        "flow_iat_mean": flow_iat,
-        "flow_iat_std": flow_iat,
-        "fwd_iat_mean": fwd_iat,
-        "bwd_iat_mean": bwd_iat,
+        "flow_iat_mean": flow_iat_mean,
+        "flow_iat_std": flow_iat_std,
+        "fwd_iat_mean": fwd_iat_mean,
+        "bwd_iat_mean": bwd_iat_mean,
         "down_up_ratio": (bwd_bytes / fwd_bytes) if fwd_bytes else 0.0,
         "syn_flag_count": float(flow["syn"]),
         "ack_flag_count": float(flow["ack"]),
