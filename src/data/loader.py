@@ -22,6 +22,16 @@ _CONFIGS_DIR = _PROJECT_ROOT / "configs"
 _DATA_DIR = _PROJECT_ROOT / "data" / "raw"
 
 
+def _load_taxonomy() -> set:
+    """Return the unified taxonomy declared in ``configs/label_mappings.yaml``."""
+    with open(_CONFIGS_DIR / "label_mappings.yaml", "r", encoding="utf-8") as f:
+        mappings = yaml.safe_load(f)
+    return set(mappings.get("taxonomy", []))
+
+
+_TAXONOMY = _load_taxonomy()
+
+
 def _load_label_mappings(dataset_name: str) -> dict:
     """Load label mappings from configs/label_mappings.yaml for a given dataset."""
     config_path = _CONFIGS_DIR / "label_mappings.yaml"
@@ -80,14 +90,29 @@ def _load_unsw_nb15(data_dir: Path) -> pd.DataFrame:
 
 def _apply_label_mapping(df: pd.DataFrame, dataset_name: str,
                          label_column: str, mappings: dict) -> pd.DataFrame:
-    """Map raw labels to unified taxonomy. Unmapped labels become 'Other'."""
+    """
+    Map raw labels to the unified taxonomy. Unmapped labels become 'Other'.
+
+    When ``label_column`` is literally ``"label"`` (datasets that already ship a
+    unified column, such as ``lab-captured``) the column is rewritten in place
+    rather than dropped, which would otherwise destroy the mapped result.
+    """
     if label_column not in df.columns:
         raise ValueError(f"Label column '{label_column}' not found in DataFrame. "
                          f"Available: {list(df.columns)}")
 
-    df[label_column] = df[label_column].astype(str).str.strip()
-    df["label"] = df[label_column].map(mappings).fillna("Other")
-    df.drop(columns=[label_column], inplace=True)
+    if not mappings:
+        return df
+
+    stripped = df[label_column].astype(str).str.strip()
+    mapped = stripped.map(mappings)
+    # Preserve already-unified labels so a partially-mapped dataset is not
+    # silently collapsed into 'Other'.
+    unmapped = mapped.isna() & stripped.isin(_TAXONOMY)
+    df["label"] = mapped.where(~mapped.isna() | unmapped, "Other")
+
+    if label_column != "label":
+        df.drop(columns=[label_column], inplace=True)
     return df
 
 
@@ -100,7 +125,7 @@ def _drop_non_features(df: pd.DataFrame, dataset_name: str) -> pd.DataFrame:
         "source ip", "src_ip", "srcip", "src ip",
         "destination ip", "dst_ip", "dstip", "dst ip",
         "source port", "src_port", "sport", "src port",
-        "destination port", "dst_port", "dsport", "dst port",
+        "destination port", "dst_port", "dsport", "dport", "dst port",
         "protocol", "proto",
     ]
     for pattern in ip_port_patterns:
