@@ -12,10 +12,11 @@ Tests used
 ``paired_ttest`` and ``wilcoxon``
     Non-parametric *and* parametric options are both offered, because the
     per-seed deltas within a pair are not guaranteed to be normally distributed
-    (with 5 seeds that is a hard assumption to make).  ``wilcoxon`` needs
-    ``n >= 6`` for an exact test, hence the default 5-seed suite is reported with
-    the t-test and wilcoxon is reported as unavailable/approximate when too few
-    seeds are configured.
+    (with 5 seeds that is a hard assumption to make).  ``wilcoxon`` enumerates
+    the exact sign distribution for ``n <= 25`` and falls back to the normal
+    approximation beyond that.  Note the resolution limit: the smallest
+    attainable one-sided exact p is ``0.5 ** n``, so 4 seeds can never reject at
+    ``alpha=0.05`` and 5 seeds are the minimum for the exact test to be able to.
 ``bootstrap_ci``
     Distribution-free 95% CI over resampled seed deltas; used as the headline
     interval because it makes no normality assumption.
@@ -238,7 +239,9 @@ def wilcoxon(before: Sequence[float], after: Sequence[float],
         expected = n_eff * (n_eff + 1) / 4.0
         sd = np.sqrt(n_eff * (n_eff + 1) * (2.0 * n_eff + 1) / 24.0)
         z = (w_min - expected) / sd
-        p_value = _norm_sf(z) * 2.0
+        # Two-sided p doubles the *lower* tail: small rank sums are the
+        # evidence against H0, so the upper tail would invert the result.
+        p_value = min(1.0, 2.0 * _norm_cdf(z))
         method = "normal approximation"
 
     if alternative == "greater":
@@ -397,17 +400,19 @@ def compare_in_domain_vs_cross_domain(results: pd.DataFrame,
             t_result = paired_ttest(in_scores, cross_scores, alternative="greater")
             w_result = wilcoxon(in_scores, cross_scores, alternative="greater")
             n_merged = int(merged[seed_column].nunique())
-            # An exact Wilcoxon test needs n >= 6 to reach p < 0.05; below that
-            # the t-test is the only test that can actually reject.
+            # The exact one-sided Wilcoxon test bottoms out at p = 0.5**n when
+            # every difference has the same sign, so 4 seeds can never reject at
+            # alpha=0.05 (0.0625) while 5 seeds can (0.03125).
             notes = [
                 note for note in (t_result.note, w_result.note) if note
             ]
             if n_merged < 2:
                 notes.append("fewer than 2 seeds: no paired test is possible")
-            elif n_merged < 6:
+            elif n_merged < 5:
                 notes.append(
-                    f"n={n_merged} seeds: exact Wilcoxon cannot reach p<0.05; "
-                    "the t-test carries the claim"
+                    f"n={n_merged} seeds: the smallest attainable one-sided "
+                    f"Wilcoxon p is {0.5 ** n_merged:.4f}, so only the t-test "
+                    "can reject at alpha=0.05"
                 )
 
             records.append({
@@ -566,6 +571,11 @@ def _binom_test_two_sided(k: int, n: int) -> float:
 def _norm_sf(z: float) -> float:
     """Upper-tail probability of the standard normal distribution."""
     return 0.5 * math.erfc(z / math.sqrt(2.0))
+
+
+def _norm_cdf(z: float) -> float:
+    """Lower-tail probability of the standard normal distribution."""
+    return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
 
 
 def _t_sf(t: float, df: int) -> float:
