@@ -251,8 +251,16 @@ def sample_flow(rng: np.random.Generator, label: str) -> dict:
     )
     duration = max(duration, iat_mean * max(n_fwd + n_bwd - 1, 0))
 
-    timestamps = np.cumsum(rng.normal(iat_mean, iat_mean * 0.35, size=n_fwd + n_bwd))
-    timestamps = np.clip(timestamps, 0.0, None)
+    # Lognormal inter-arrival gaps: strictly positive, mean exactly `iat_mean`,
+    # and monotonically increasing once accumulated.  Monotonicity matters — it
+    # guarantees the first packet written to a pcap belongs to the forward
+    # direction, so flow orientation and duration survive the pcap round trip.
+    increments = rng.lognormal(mean=np.log(iat_mean), sigma=0.35,
+                               size=n_fwd + n_bwd)
+    timestamps = np.cumsum(increments)
+    # Anchor the flow at t=0 so that `flow_duration` equals the last timestamp,
+    # exactly as it is recomputed from a pcap round trip.
+    timestamps = timestamps - timestamps[0]
     # Scale so the flow spans exactly `duration`.  The relative inter-arrival
     # structure is preserved, and a pcap-derived flow_duration therefore matches
     # this one exactly (see src/data/feature_extractor._flow_to_record).
