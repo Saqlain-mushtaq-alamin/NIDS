@@ -109,6 +109,9 @@ identity_columns:
   - flow id
   - flow_id
   - timestamp
+  - timestamp_start
+  - timestamp_end
+  - session_id
   - stime
   - ltime
   - sflags
