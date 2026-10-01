@@ -258,8 +258,8 @@ def _unsw_row(aggregated: dict, attack_cat: str, is_attack: bool,
         "dinp": aggregated["flow_iat_mean"] / 1_000_000.0,
         "dinbytes": float(rng.integers(0, 600)),
         "doutbytes": float(rng.integers(0, 6000)),
-        "attack": attack_cat,
-        "label": int(is_attack),
+        "attack": int(is_attack),
+        "attack_cat": attack_cat,
         # Fingerprint columns that carry no network meaning at all.
         "unsw_fingerprint_0": fingerprint,
         "unsw_fingerprint_1": float(rng.normal()),
@@ -271,7 +271,7 @@ UNSW_COLUMN_ORDER = [
     "sbytes", "dbytes", "spackets", "dpackets", "sinbytes", "dinbytes",
     "se_loss", "dloss", "sflags", "dflags", "sttl", "dttl", "s_itgt", "d_itgt",
     "smean", "smax", "smin", "dmean", "dmax", "dmin", "dtp", "dln", "dinp",
-    "dinbytes", "doutbytes", "attack", "label",
+    "dinbytes", "doutbytes", "attack", "attack_cat", "label",
     "unsw_fingerprint_0", "unsw_fingerprint_1",
 ]
 
