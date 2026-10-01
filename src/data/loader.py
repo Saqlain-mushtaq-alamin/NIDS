@@ -13,6 +13,10 @@ import yaml
 import pandas as pd
 import numpy as np
 
+from src.utils.pandas_compat import apply_pandas_compat
+
+apply_pandas_compat()
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _CONFIGS_DIR = _PROJECT_ROOT / "configs"
 _DATA_DIR = _PROJECT_ROOT / "data" / "raw"
