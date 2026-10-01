@@ -1,7 +1,19 @@
 session_id,timestamp_start,timestamp_end,source_ip,target_ip,attack_type,tools_used,notes
-sess_001,2026-09-01T10:00:00Z,2026-09-01T10:15:00Z,10.0.0.5,10.0.0.10,Benign,curl/wget,Normal HTTP and SSH activity
-sess_002,2026-09-01T10:15:00Z,2026-09-01T10:20:00Z,10.0.0.5,10.0.0.10,DoS,hping3,SYN flood attack on port 80
+sess_001,2026-09-01T10:00:00Z,2026-09-01T10:15:00Z,10.0.0.5,10.0.0.10,Benign,curl/wget,Normal HTTP SSH and FTP background traffic
+sess_002,2026-09-01T10:15:00Z,2026-09-01T10:20:00Z,10.0.0.5,10.0.0.10,DoS,hping3,SYN flood against port 80
 sess_003,2026-09-01T10:20:00Z,2026-09-01T10:30:00Z,10.0.0.5,10.0.0.10,PortScan,nmap,SYN stealth scan across 65535 ports
-sess_004,2026-09-01T10:30:00Z,2026-09-01T10:40:00Z,10.0.0.5,10.0.0.10,BruteForce,hydra,SSH login brute-force attempt
-sess_005,2026-09-01T10:40:00Z,2026-09-01T10:50:00Z,10.0.0.5,10.0.0.10,WebAttack,sqlmap,Automated SQL injection probe
+sess_004,2026-09-01T10:30:00Z,2026-09-01T10:40:00Z,10.0.0.5,10.0.0.10,BruteForce,hydra,SSH login brute force with rockyou list
+sess_005,2026-09-01T10:40:00Z,2026-09-01T10:50:00Z,10.0.0.5,10.0.0.10,WebAttack,sqlmap,Automated SQL injection probing
 sess_006,2026-09-01T10:50:00Z,2026-09-01T11:00:00Z,10.0.0.5,10.0.0.15,Botnet,metasploit,C2 reverse TCP beaconing session
+sess_007,2026-09-03T14:00:00Z,2026-09-03T14:15:00Z,10.0.0.5,10.0.0.10,Benign,curl/wget/ab,ApacheBench load plus browsing and SSH
+sess_008,2026-09-03T14:15:00Z,2026-09-03T14:20:00Z,10.0.0.5,10.0.0.10,DoS,slowloris,H slowloris connection exhaustion
+sess_009,2026-09-03T14:20:00Z,2026-09-03T14:30:00Z,10.0.0.5,10.0.0.10,PortScan,nmap,Service and OS detection scan
+sess_010,2026-09-03T14:30:00Z,2026-09-03T14:40:00Z,10.0.0.5,10.0.0.10,BruteForce,hydra,FTP brute force against vsftpd
+sess_011,2026-09-03T14:40:00Z,2026-09-03T14:50:00Z,10.0.0.5,10.0.0.10,WebAttack,curl,XSS and directory traversal payloads
+sess_012,2026-09-03T14:50:00Z,2026-09-03T15:00:00Z,10.0.0.5,10.0.0.15,Botnet,curl,Periodic HTTPS beacon callbacks
+sess_013,2026-09-05T09:00:00Z,2026-09-05T09:15:00Z,10.0.0.5,10.0.0.10,Benign,ssh/ftp,SSH sessions FTP transfers and web browsing
+sess_014,2026-09-05T09:15:00Z,2026-09-05T09:20:00Z,10.0.0.5,10.0.0.10,DoS,hping3,UDP flood and SYN ACK flood variants
+sess_015,2026-09-05T09:20:00Z,2026-09-05T09:30:00Z,10.0.0.5,10.0.0.10,PortScan,nmap,Connect scan TCP full port range
+sess_016,2026-09-05T09:30:00Z,2026-09-05T09:40:00Z,10.0.0.5,10.0.0.10,BruteForce,hydra,Combined SSH and FTP credential stuffing
+sess_017,2026-09-05T09:40:00Z,2026-09-05T09:50:00Z,10.0.0.5,10.0.0.10,WebAttack,sqlmap,Time based and boolean SQL injection
+sess_018,2026-09-05T09:50:00Z,2026-09-05T10:00:00Z,10.0.0.5,10.0.0.15,Botnet,metasploit,Staged reverse shell with keepalive
