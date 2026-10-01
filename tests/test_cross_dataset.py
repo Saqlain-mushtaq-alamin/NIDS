@@ -244,12 +244,15 @@ class TestNoLeakage:
         assert len(built) == 2
         assert built[0] is not built[1]
         assert template.transformed == []          # template untouched
-        # Each built instance was fitted on its own domain and transformed
-        # exactly twice: its training rows and the evaluation frame.
+        # Each built instance was fitted on its own domain. split() materialises
+        # train/val/test (3 calls) and the cross-domain case then transforms the
+        # external test frame once more (4 calls total).
         assert all(b.feature_names_ for b in built)
-        assert len(built[0].transformed) == 2
-        assert len(built[1].transformed) == 2
-        assert built[0].feature_names_ != built[1].feature_names_ or True
+        assert len(built[0].transformed) == 4
+        assert len(built[1].transformed) == 4
+        # The last frame each instance saw is the evaluation dataset itself.
+        assert set(built[0].transformed[-1].columns) == {"g1", "g2", "g3", "label"}
+        assert set(built[1].transformed[-1].columns) == {"f1", "f2", "label"}
 
     def test_preprocessor_transform_before_fit_raises(self):
         with pytest.raises(RuntimeError, match="must be fitted"):
