@@ -16,7 +16,11 @@ captum>=0.6.0
 
 # Graph Neural Networks & Online ML
 torch-geometric>=2.3.0
-river>=0.18.0
+# River is capped below 0.23 deliberately. river>=0.26 requires numpy>=2.2.5,
+# which contradicts the numpy<2.0.0 pin above; river 0.22.x provides the
+# river.drift.ADWIN API used by src/drift/drift_detector.py and works with
+# numpy 1.26.
+river>=0.22.0,<0.23.0
 
 # Network Packet Processing & Utilities
 scapy>=2.5.0
