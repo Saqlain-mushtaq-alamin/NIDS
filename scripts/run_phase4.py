@@ -705,7 +705,10 @@ def run_response(ctx: Phase4Context, tiered_result: dict | None = None,
         "dry_run": stats["dry_run"],
         "unique_source_ips": sorted({r["source_ip"] for r in log}),
         "stats": stats,
-        "log": log[:40],
+        # The full replay is kept: the dashboard labels every alert with the
+        # action the engine took for it, and a truncated log silently left 110
+        # of 150 alerts without an action in the feed.
+        "log": log,
         "burst_test": {
             "description": ("15 distinct high-confidence hosts replayed against "
                             "a 10 blocks/minute budget (synthetic addresses, "
