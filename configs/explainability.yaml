@@ -1,0 +1,30 @@
+# configs/explainability.yaml — Phase 4 explanation pipeline (PHASE_4 §4.1–4.4)
+
+explainability:
+  seed: 42
+
+  shap:
+    # KernelSHAP cost scales as n_alerts x n_background x n_coalitions.
+    background_samples: 100     # cap applied to the KernelSHAP reference set
+    tree_top_k: 5               # features per Tier-1 summary
+    global_top_k: 15            # rows in the global summary plot
+    save_summary_plot: true
+
+  deeplift:
+    # None means an all-zero baseline, i.e. the training median for the
+    # robust-scaled features this project ships.
+    baseline: null
+    multiply_by_inputs: true
+
+  faithfulness:
+    steps: 10                   # masking increments for deletion AUC
+    min_alerts: 100             # phase gate: comparison needs >= 100 alerts
+    alpha: 0.05                 # significance level for the paired t-test
+
+  tiered:
+    tier1_top_k: 3              # indicators shown in the SOC triage summary
+    tier1_max_chars: 500        # FR6: triage text must stay scannable
+
+  alerts:
+    max_alerts: 150             # alerts explained end-to-end in a full run
+    min_confidence: 0.5         # only alerts the detector actually raised
