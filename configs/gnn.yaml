@@ -1,0 +1,66 @@
+# configs/gnn.yaml — Phase 3 host-communication-graph GNN
+
+project:
+  name: "NIDS-Phase3-GNN"
+  version: "0.1.0"
+
+reproducibility:
+  global_seed: 42
+  deterministic_cudnn: true
+
+data:
+  # SYNTHETIC ONLY. The Phase 2 lab captures contain three addresses
+  # (10.0.0.5 -> 10.0.0.10 / 10.0.0.15), which cannot produce a host graph
+  # with enough nodes to learn from. src/data/graph_simulator.py generates a
+  # multi-host network for development; it is not a substitute for a real
+  # capture and results must be reported as such.
+  source: "graph_simulator"
+  scenarios: ["benign", "port_scan", "lateral_movement", "data_exfiltration"]
+  n_windows_per_scenario: 40
+  n_hosts: 12
+
+graph:
+  window_seconds: 60
+  # Both id.orig_h/id.resp_h (Zeek) and src_ip/dst_ip are accepted.
+  src_column: "src_ip"
+  dst_column: "dst_ip"
+  drop_self_loops: true
+  node_features: 7
+  edge_features: 4
+  # A window is an attack window when at least this fraction of its flows are
+  # attack flows. The label is derived from the flows inside the window, never
+  # assigned in advance.
+  attack_fraction: 0.5
+
+model:
+  architecture: "graphsage_meanmax"
+  hidden_dim: 32
+  dropout: 0.1
+  out_channels: 2
+  # Edge attributes enter through an explicit edge-message branch: PyG's
+  # SAGEConv accepts neither edge_dim nor edge_weight.
+  edge_message_branch: true
+  use_batch_norm: true
+
+training:
+  epochs: 60
+  batch_size: 16
+  learning_rate: 0.01
+  weight_decay: 0.0005
+  test_fraction: 0.25
+  stratified_split: true
+  # Splits are over windows, never over flows, so no edge appears in both.
+  split_unit: "window"
+
+evaluation:
+  latency_budget_ms: 35.0
+  # 50 nodes / 200 edges is the workload named in the phase plan.
+  latency_nodes: 50
+  latency_edges: 200
+  latency_iterations: 200
+  latency_warmup: 20
+  report_baseline_comparison: true
+
+outputs:
+  model_path: "results/phase3/gnn/model.pt"
+  metrics_directory: "results/phase3/gnn"
