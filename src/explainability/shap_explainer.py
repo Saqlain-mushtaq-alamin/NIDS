@@ -29,6 +29,7 @@ Output contract of :meth:`SHAPExplainer.explain`::
 from __future__ import annotations
 
 import time
+import warnings
 from pathlib import Path
 from typing import Callable, Optional, Sequence, Union
 
@@ -322,8 +323,14 @@ class SHAPExplainer:
 
         try:
             plt.figure(figsize=(8, 6))
-            shap.summary_plot(values, features=np.asarray(feature_names),
-                              max_display=int(top_k), show=False)
+            # shap.summary_plot seeds NumPy's global RNG, which NumPy 2.x
+            # deprecates; the warning is library noise in the middle of a run
+            # report, and the plot is unaffected.
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore", message="The NumPy global RNG was seeded")
+                shap.summary_plot(values, features=np.asarray(feature_names),
+                                  max_display=int(top_k), show=False)
             fig = plt.gcf()
             out = Path(path)
             out.parent.mkdir(parents=True, exist_ok=True)
