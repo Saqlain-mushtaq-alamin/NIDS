@@ -1,0 +1,46 @@
+# configs/anomaly_detection.yaml — Phase 3 autoencoder anomaly detection
+
+project:
+  name: "NIDS-Phase3-Autoencoder"
+  version: "0.1.0"
+
+reproducibility:
+  global_seed: 42
+  deterministic_cudnn: true
+
+data:
+  # The Phase 2 captures are synthetic stand-ins and contain no retained IP
+  # columns, so the autoencoder is exercised on flow features only. Graphs come
+  # from src/data/graph_simulator.py, which is explicitly synthetic.
+  source: "lab_flows"
+  feature_set: "flow_features"
+  test_split_ratio: 0.2
+  val_split_ratio: 0.1
+
+autoencoder:
+  # N -> 64 -> 32 -> 16 (latent), mirrored on the decoder.
+  latent_dim: 16
+  hidden_dims: [64, 32]
+  dropout: 0.2
+  learning_rate: 0.001
+  weight_decay: 0.0
+  batch_size: 64
+  epochs: 100
+  grad_clip: 5.0
+  early_stopping_patience: 0
+
+threshold:
+  # Percentile of the *validation benign* reconstruction-error distribution.
+  # Attack flows are filtered out before calibration so the threshold is not
+  # inflated by the attacks it must catch.
+  percentile: 99.0
+  calibrate_on: "validation_benign_only"
+
+evaluation:
+  report_per_class_detection: true
+  report_error_summary: true
+  cross_dataset: true
+
+outputs:
+  model_directory: "results/phase3/autoencoder"
+  metrics_directory: "results/phase3/autoencoder"
