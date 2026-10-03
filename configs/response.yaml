@@ -1,0 +1,17 @@
+# configs/response.yaml — Phase 4 automated response engine (PHASE_4 §4.5)
+#
+# Every limit here is a *safety* limit, not a tuning knob:
+#   * max_blocks_per_minute bounds how many hosts a false-positive burst can
+#     lock out in one minute (requirement NFR10).
+#   * auto_unblock_seconds bounds how long a wrong block can last unattended.
+#   * dry_run MUST stay true unless an operator deliberately provisions a
+#     firewall integration. Nothing in this repository flips it.
+
+response:
+  max_blocks_per_minute: 10   # NFR10: >= 11 blocks/min is refused, not queued
+  auto_unblock_seconds: 300   # automatic rollback TTL (default 5 minutes)
+  rate_limit_seconds: 300     # how long a rate-limited source stays limited
+  log_confidence_below: 0.7   # below this confidence: LOG_ONLY
+  block_confidence: 0.9       # at/above this AND severity HIGH: BLOCK
+  dry_run: true               # record firewall commands, never execute them
+  action_log_size: 10000
