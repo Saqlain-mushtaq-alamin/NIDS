@@ -1,0 +1,52 @@
+# configs/drift.yaml — Phase 3 concept-drift monitoring
+
+project:
+  name: "NIDS-Phase3-Drift"
+  version: "0.1.0"
+
+reproducibility:
+  global_seed: 42
+
+monitoring:
+  # Only the highest-variance features are monitored: monitoring all of them is
+  # noisy, and constant features cannot drift at all.
+  top_k: 10
+  feature_selection: "highest_variance"
+
+adwin:
+  # delta is the false-positive rate bound the maintainer accepts, NOT an
+  # effect size. Smaller delta => more sensitive and noisier.
+  delta: 0.002
+  clock: 32
+  min_window_length: 5
+  grace_period: 10
+  # ADWIN detectors are primed with the reference samples in fit() so that a
+  # shift starting after the baseline was captured is still visible.
+  prime_with_reference: true
+
+psi:
+  enabled: true
+  # Conventional interpretation: <0.1 stable, 0.1-0.25 moderate, >0.25
+  # significant. Bins come from the reference quantiles.
+  threshold: 0.25
+  bins: 10
+  # 0 evaluates PSI over the whole stream, which averages away late shifts.
+  window_size: 200
+
+monitors:
+  feature_magnitude: true
+  # Mean confidence collapsing while inputs look unchanged is the signature of
+  # a model that has quietly stopped fitting.
+  prediction_confidence: true
+  detection_rate: true
+
+response:
+  # Drift is evidence to investigate, never a diagnosis and never an automatic
+  # action: nothing here retrains a model or blocks traffic.
+  auto_retrain: false
+  escalate_to_alert: true
+  include_feature_attribution: true
+
+outputs:
+  state_path: "results/phase3/drift/state.pkl"
+  report_directory: "results/phase3/drift"
