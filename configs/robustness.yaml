@@ -1,0 +1,33 @@
+# configs/robustness.yaml — Phase 5 Adversarial Robustness Testing Configuration
+
+project:
+  name: "NIDS-Phase5-AdversarialRobustness"
+  version: "0.1.0"
+
+reproducibility:
+  global_seed: 42
+
+attacks:
+  epsilons: [0.01, 0.05, 0.1, 0.2, 0.5]
+  pgd_steps: 10
+  pgd_step_size: 0.02
+  enforce_constraints: true
+  min_val: 0.0
+
+defense:
+  adv_ratio: 0.5
+  epsilon: 0.1
+  epochs: 20
+  batch_size: 64
+  learning_rate: 0.001
+  hidden_dims: [64, 32]
+  dropout: 0.1
+
+evaluation:
+  models: ["xgboost", "dnn"]
+  primary_dataset: "cic-ids-2017"
+  secondary_dataset: "unsw-nb15"
+  benign_label: "Benign"
+  literature_targets:
+    defense_accuracy_gain: 0.35   # arXiv:2502.15561 target +35%
+    defense_fpr_reduction: 0.125  # arXiv:2502.15561 target -12.5%
