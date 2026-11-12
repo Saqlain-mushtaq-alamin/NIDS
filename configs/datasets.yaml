@@ -38,9 +38,40 @@ datasets:
     label_column: "label"
     notes: "Botnet C2 and encrypted traffic benchmark dataset."
 
-  lab-captured:
-    name: "Self-Captured Home-Lab Dataset"
+  lab-simulated:
+    name: "Lab-Simulated Traffic Dataset"
     local_dir: "data/lab_captures"
     file_pattern: "*.csv"
     label_column: "label"
-    notes: "Captured in VirtualBox lab environment with Kali attacker VM."
+    notes: "Simulated traffic generated from behavioral model (not physical capture)."
+
+  lab-captured:
+    name: "Lab-Simulated Traffic Dataset (Legacy Alias)"
+    local_dir: "data/lab_captures"
+    file_pattern: "*.csv"
+    label_column: "label"
+    notes: "Legacy alias for lab-simulated."
+
+  nf-unsw-nb15-v2:
+    name: "NF-UNSW-NB15-v2"
+    source_url: "https://staff.itee.uq.edu.au/marius/NIDS_datasets/"
+    local_dir: "data/raw/nf-unsw-nb15-v2"
+    file_pattern: "*.csv"
+    label_column: "Attack"
+    notes: "NetFlow-v2 representation of UNSW-NB15 (43 features)."
+
+  nf-cse-cic-ids2018-v2:
+    name: "NF-CSE-CIC-IDS2018-v2"
+    source_url: "https://staff.itee.uq.edu.au/marius/NIDS_datasets/"
+    local_dir: "data/raw/nf-cse-cic-ids2018-v2"
+    file_pattern: "*.csv"
+    label_column: "Attack"
+    notes: "NetFlow-v2 representation of CSE-CIC-IDS2018 (43 features)."
+
+  nf-ton-iot-v2:
+    name: "NF-ToN-IoT-v2"
+    source_url: "https://staff.itee.uq.edu.au/marius/NIDS_datasets/"
+    local_dir: "data/raw/nf-ton-iot-v2"
+    file_pattern: "*.csv"
+    label_column: "Attack"
+    notes: "NetFlow-v2 representation of ToN-IoT (43 features)."
