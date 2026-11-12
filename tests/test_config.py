@@ -56,4 +56,4 @@ def test_load_config_relative_resolution():
     assert (cfg_mod._PROJECT_ROOT / "configs" / "default.yaml").is_file()
     cfg = cfg_mod.load_config("configs/default.yaml")
     assert cfg is not None
-    assert "Test log message" in log_file.read_text()
+    assert cfg.project.name is not None
