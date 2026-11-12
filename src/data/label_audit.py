@@ -108,8 +108,6 @@ class LabelAuditor:
             "total_samples": len(y),
             "per_class_noise": per_class,
         }
-            "per_class_noise": per_class,
-        }
 
     def audit(self, df: pd.DataFrame, label_column: str = "label") -> dict:
         """
