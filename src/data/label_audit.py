@@ -33,50 +33,53 @@ class LabelAuditor:
     def _estimate_noise_with_cleanlab(self, X: np.ndarray, y: np.ndarray) -> dict:
         """Use cleanlab's confident learning to estimate noise."""
         try:
+            import cleanlab  # noqa: F401
             from cleanlab.filter import find_label_issues
-            from cleanlab.internal.label_noise_cmuting import get_noise_matrix
-
-            clf = RandomForestClassifier(
-                n_estimators=50, max_depth=8, random_state=self.seed, n_jobs=-1
+        except ImportError as exc:
+            logger.warning(
+                "cleanlab is unavailable (%s); falling back to cv_heuristic", exc
             )
-
-            # Get cross-validated predicted probabilities
-            from sklearn.model_selection import StratifiedKFold
-            skf = StratifiedKFold(n_splits=self.cv_folds, shuffle=True, random_state=self.seed)
-            proba = np.zeros((len(y), len(np.unique(y))))
-            classes = np.unique(y)
-            class_to_idx = {c: i for i, c in enumerate(classes)}
-
-            for train_idx, val_idx in skf.split(X, y):
-                clf.fit(X[train_idx], y[train_idx])
-                proba[val_idx] = clf.predict_proba(X[val_idx])
-
-            # Find label issues
-            issues = find_label_issues(
-                labels=y,
-                pred_probs=proba,
-                return_indices_ranked_by='self_confidence'
-            )
-
-            noise_rate = len(issues) / len(y) if len(issues) > 0 else 0.0
-
-            # Per-class noise
-            per_class = {}
-            for cls in classes:
-                cls_mask = y == cls
-                cls_issues = np.intersect1d(issues, np.where(cls_mask)[0])
-                per_class[str(cls)] = len(cls_issues) / max(cls_mask.sum(), 1)
-
-            return {
-                "method": "cleanlab_confident_learning",
-                "noise_rate": float(noise_rate),
-                "num_issues": int(len(issues)),
-                "total_samples": len(y),
-                "per_class_noise": per_class,
-                "issue_indices": issues.tolist()[:100],  # First 100 for reference
-            }
-        except ImportError:
             return {}
+
+        le = LabelEncoder()
+        y_int = le.fit_transform(y)
+        classes = le.classes_
+
+        clf = RandomForestClassifier(
+            n_estimators=50, max_depth=8, random_state=self.seed, n_jobs=-1
+        )
+
+        skf = StratifiedKFold(n_splits=self.cv_folds, shuffle=True, random_state=self.seed)
+        proba = np.zeros((len(y_int), len(classes)))
+
+        for train_idx, val_idx in skf.split(X, y_int):
+            clf.fit(X[train_idx], y_int[train_idx])
+            proba[val_idx] = clf.predict_proba(X[val_idx])
+
+        # Find label issues
+        issues = find_label_issues(
+            labels=y_int,
+            pred_probs=proba,
+            return_indices_ranked_by="self_confidence",
+        )
+
+        noise_rate = len(issues) / len(y_int) if len(issues) > 0 else 0.0
+
+        # Per-class noise
+        per_class = {}
+        for idx, cls in enumerate(classes):
+            cls_mask = y_int == idx
+            cls_issues = np.intersect1d(issues, np.where(cls_mask)[0])
+            per_class[str(cls)] = len(cls_issues) / max(cls_mask.sum(), 1)
+
+        return {
+            "method": "cleanlab",
+            "noise_rate": float(noise_rate),
+            "num_issues": int(len(issues)),
+            "total_samples": len(y_int),
+            "per_class_noise": per_class,
+            "issue_indices": issues.tolist()[:100],  # First 100 for reference
+        }
 
     def _estimate_noise_heuristic(self, X: np.ndarray, y: np.ndarray) -> dict:
         """Estimate noise using cross-validation error as proxy."""
@@ -84,7 +87,6 @@ class LabelAuditor:
             n_estimators=50, max_depth=8, random_state=self.seed, n_jobs=-1
         )
 
-        from sklearn.model_selection import cross_val_predict
         y_pred = cross_val_predict(clf, X, y, cv=self.cv_folds)
 
         # Misclassified samples are potential noise
@@ -100,10 +102,12 @@ class LabelAuditor:
             per_class[str(cls)] = cls_misclassified.sum() / max(cls_mask.sum(), 1)
 
         return {
-            "method": "cross_validation_heuristic",
+            "method": "cv_heuristic",
             "noise_rate": float(noise_rate),
             "num_issues": int(misclassified.sum()),
             "total_samples": len(y),
+            "per_class_noise": per_class,
+        }
             "per_class_noise": per_class,
         }
 
