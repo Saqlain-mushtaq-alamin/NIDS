@@ -39,6 +39,7 @@ from src.evaluation.cross_dataset import CrossDatasetEvaluator, RESULT_COLUMNS
 from src.evaluation.statistics import analyze
 from src.models.baseline_rf import RFBaseline
 from src.models.baseline_xgb import XGBBaseline
+from src.utils.config import load_config
 from src.utils.logging_setup import setup_logger
 from src.utils.pandas_compat import apply_pandas_compat
 
@@ -48,7 +49,10 @@ RESULTS_DIR = _PROJECT_ROOT / "results"
 
 DEFAULT_DATASETS = ["cic-ids-2017", "unsw-nb15", "lab-captured"]
 DEFAULT_MODES = ["full", "behavior_only"]
-DEFAULT_SEEDS = [42, 1337, 2024, 7, 99]
+try:
+    DEFAULT_SEEDS = list(load_config("configs/cross_dataset.yaml").reproducibility.seeds)
+except Exception:
+    DEFAULT_SEEDS = [42, 123, 456, 789, 1024]
 
 MODEL_FACTORIES = {
     "xgb": lambda seed: XGBBaseline(
