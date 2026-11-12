@@ -730,5 +730,6 @@ __all__ = [
     "mcnemar",
     "aggregate_over_seeds",
     "compare_in_domain_vs_cross_domain",
+    "dataset_level_test",
     "analyze",
 ]
