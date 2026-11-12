@@ -40,6 +40,16 @@ unsw-nb15:
   Shellcode: Botnet
   Worms: Botnet
 
+lab-simulated:
+  Benign: Benign
+  DoS: DoS
+  DDoS: DDoS
+  PortScan: PortScan
+  BruteForce: BruteForce
+  WebAttack: WebAttack
+  Botnet: Botnet
+  Infiltration: Infiltration
+
 lab-captured:
   Benign: Benign
   DoS: DoS
@@ -49,3 +59,41 @@ lab-captured:
   WebAttack: WebAttack
   Botnet: Botnet
   Infiltration: Infiltration
+
+nf-unsw-nb15-v2:
+  Benign: Benign
+  Generic: Other
+  Exploits: WebAttack
+  Fuzzers: Other
+  DoS: DoS
+  Reconnaissance: PortScan
+  Analysis: PortScan
+  Backdoor: Botnet
+  Shellcode: Botnet
+  Worms: Botnet
+
+nf-cse-cic-ids2018-v2:
+  Benign: Benign
+  "DDOS attack-HOIC": DDoS
+  "DDoS attacks-LOIC-HTTP": DDoS
+  "DoS attacks-Hulk": DoS
+  "Bot": Botnet
+  "FTP-BruteForce": BruteForce
+  "SSH-Bruteforce": BruteForce
+  "DoS attacks-SlowHTTPTest": DoS
+  "DoS attacks-GoldenEye": DoS
+  "DoS attacks-Slowloris": DoS
+  "Infilteration": Infiltration
+  "Infiltration": Infiltration
+
+nf-ton-iot-v2:
+  Benign: Benign
+  scanning: PortScan
+  dos: DoS
+  ddos: DDoS
+  password: BruteForce
+  injection: WebAttack
+  xss: WebAttack
+  backdoor: Botnet
+  ransomware: Botnet
+  mitm: Other
