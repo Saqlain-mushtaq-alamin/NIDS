@@ -283,6 +283,9 @@ class CrossDatasetEvaluator:
         model_name: str = "model",
         class_weight: Optional[str] = None,
         normalize: bool = True,
+        log1p: bool = False,
+        per_domain_scaler: bool = False,
+        min_test_rows: int = 0,
         logger=None,
     ):
         if model_factory is None:
@@ -306,6 +309,9 @@ class CrossDatasetEvaluator:
         self.model_name = model_name
         self.class_weight = class_weight
         self.normalize = normalize
+        self.log1p = bool(log1p)
+        self.per_domain_scaler = bool(per_domain_scaler)
+        self.min_test_rows = int(min_test_rows)
         self.logger = logger
 
     # -- setup --------------------------------------------------------------
@@ -372,6 +378,7 @@ class CrossDatasetEvaluator:
                 normalization=self.normalization,
                 feature_mode=self.feature_mode,
                 dataset=train_dataset,
+                log1p=self.log1p,
             )
 
         template = self.preprocessor_template
@@ -384,6 +391,7 @@ class CrossDatasetEvaluator:
                     feature_mode=template.feature_mode,
                     variance_threshold=template.variance_threshold,
                     dataset=train_dataset,
+                    log1p=getattr(template, "log1p", self.log1p),
                 )
             except TypeError:
                 continue
@@ -441,22 +449,60 @@ class CrossDatasetEvaluator:
         train_frame = self._load(train_dataset)
         test_frame = self._load(test_dataset)
 
+        # Feature intersection protocol:
+        # Determine available features in train and test frame
+        p_train = self._build_preprocessor(train_dataset)
+        train_proj = p_train.project_features(train_frame, dataset=train_dataset)
+        train_feat_raw = [
+            c for c in train_proj.columns
+            if pd.api.types.is_numeric_dtype(train_proj[c]) and train_proj[c].notna().sum() > 0
+        ]
+
+        p_test = self._build_preprocessor(test_dataset)
+        test_proj = p_test.project_features(test_frame, dataset=test_dataset)
+        test_feat_raw = [
+            c for c in test_proj.columns
+            if pd.api.types.is_numeric_dtype(test_proj[c]) and test_proj[c].notna().sum() > 0
+        ]
+
+        if train_dataset == test_dataset:
+            shared_features = list(train_feat_raw)
+            dropped_train = []
+            dropped_test = []
+        else:
+            shared_features = [c for c in train_feat_raw if c in set(test_feat_raw)]
+            dropped_train = [c for c in train_feat_raw if c not in set(shared_features)]
+            dropped_test = [c for c in test_feat_raw if c not in set(shared_features)]
+
+        if not shared_features:
+            raise CrossDatasetError(
+                f"'{train_dataset}' and '{test_dataset}' share no features "
+                f"(train={len(train_feat_raw)}, test={len(test_feat_raw)}); "
+                "cross-dataset evaluation requires non-empty feature intersection."
+            )
+
         preprocessor = self._build_preprocessor(train_dataset)
         train_X, train_y, test_X, test_y = self._prepare(
             preprocessor, train_frame, test_frame,
             in_domain=(train_dataset == test_dataset), seed=seed,
+            shared_features=shared_features, test_dataset=test_dataset,
         )
 
         warnings: list[str] = []
+        if dropped_train:
+            warnings.append(
+                f"{len(dropped_train)} features dropped from '{train_dataset}' absent in test: {dropped_train}"
+            )
+        if dropped_test:
+            warnings.append(
+                f"{len(dropped_test)} features dropped from '{test_dataset}' absent in train: {dropped_test}"
+            )
         if preprocessor.missing_features_:
             warnings.append(
                 f"training dataset '{train_dataset}' cannot supply "
                 f"{len(preprocessor.missing_features_)} requested features: "
                 f"{preprocessor.missing_features_}"
             )
-
-        model = self._build_model()
-        model.fit(train_X, train_y)
 
         train_labels = sorted(set(_as_array(train_y).tolist()))
         test_labels_all = sorted(set(test_y.tolist()))
@@ -477,6 +523,12 @@ class CrossDatasetEvaluator:
             raise CrossDatasetError(
                 f"No '{test_dataset}' rows carry a shared label; cannot evaluate."
             )
+        if self.min_test_rows > 0 and n_eval < self.min_test_rows:
+            raise ValueError(
+                f"Evaluated test rows ({n_eval}) is smaller than min_test_rows "
+                f"({self.min_test_rows}). Failing loudly per scientific rules."
+            )
+
         if n_eval < n_total:
             warnings.append(
                 f"{n_total - n_eval} test rows dropped: labels "
@@ -484,11 +536,76 @@ class CrossDatasetEvaluator:
                 f"(coverage {n_eval / n_total:.1%})"
             )
 
+        model = self._build_model()
+        model.fit(train_X, train_y)
+
         y_true = test_y[keep]
         y_pred = _as_array(model.predict(test_X[keep]))
 
-        # A prediction outside the shared set is an error, never filtered out.
+        # Multi-class metrics (macro_f1 computed strictly over shared labels)
         metrics = compute_metrics(y_true, y_pred, average="weighted")
+        metrics["macro_f1"] = float(f1_score(y_true, y_pred, labels=shared, average="macro", zero_division=0))
+        boot_ci_low, boot_ci_high = _bootstrap_macro_f1(y_true, y_pred, shared, seed=seed)
+
+        # Binary Benign-vs-Attack metrics
+        has_benign = any(str(l).strip().lower() == "benign" for l in shared)
+        if has_benign:
+            y_true_bin = np.array([0 if str(l).strip().lower() == "benign" else 1 for l in y_true], dtype=int)
+            y_pred_bin = np.array([0 if str(l).strip().lower() == "benign" else 1 for l in y_pred], dtype=int)
+        else:
+            neg_l = str(shared[0])
+            y_true_bin = np.array([0 if str(l) == neg_l else 1 for l in y_true], dtype=int)
+            y_pred_bin = np.array([0 if str(l) == neg_l else 1 for l in y_pred], dtype=int)
+
+        bin_f1 = float(f1_score(y_true_bin, y_pred_bin, pos_label=1, zero_division=0))
+        bin_rec = float(recall_score(y_true_bin, y_pred_bin, pos_label=1, zero_division=0))
+        cm = confusion_matrix(y_true_bin, y_pred_bin, labels=[0, 1])
+        tn, fp, fn, tp = cm.ravel()
+        bin_fpr = float(fp / (fp + tn)) if (fp + tn) > 0 else 0.0
+        bin_mcc = float(matthews_corrcoef(y_true_bin, y_pred_bin))
+
+        bin_auroc = float("nan")
+        if hasattr(model, "predict_proba"):
+            try:
+                proba = model.predict_proba(test_X[keep])
+                classes = [str(c) for c in getattr(model, "classes_", [])]
+                if has_benign:
+                    atk_idx = [i for i, c in enumerate(classes) if c.strip().lower() != "benign"]
+                else:
+                    atk_idx = [i for i, c in enumerate(classes) if c != neg_l]
+                if atk_idx and proba.ndim == 2:
+                    p_atk = proba[:, atk_idx].sum(axis=1)
+                    if len(np.unique(y_true_bin)) > 1:
+                        bin_auroc = float(roc_auc_score(y_true_bin, p_atk))
+            except Exception:
+                pass
+
+        binary_metrics = {
+            "binary_f1": bin_f1,
+            "binary_recall": bin_rec,
+            "binary_fpr": bin_fpr,
+            "binary_auroc": bin_auroc,
+            "binary_mcc": bin_mcc,
+        }
+
+        # Majority-class baseline (from training set majority)
+        maj_counts = pd.Series(_as_array(train_y)).value_counts()
+        majority_class = str(maj_counts.index[0]) if not maj_counts.empty else str(shared[0])
+        maj_pred = np.full(len(y_true), majority_class, dtype=object)
+        maj_acc = float(accuracy_score(y_true, maj_pred))
+        maj_macro_f1 = float(f1_score(y_true, maj_pred, labels=shared, average="macro", zero_division=0))
+        if has_benign:
+            maj_pred_bin = np.array([0 if str(l).strip().lower() == "benign" else 1 for l in maj_pred], dtype=int)
+        else:
+            maj_pred_bin = np.array([0 if str(l) == neg_l else 1 for l in maj_pred], dtype=int)
+        maj_bin_f1 = float(f1_score(y_true_bin, maj_pred_bin, pos_label=1, zero_division=0))
+
+        majority_baseline = {
+            "majority_class": majority_class,
+            "majority_accuracy": maj_acc,
+            "majority_macro_f1": maj_macro_f1,
+            "majority_binary_f1": maj_bin_f1,
+        }
 
         result = CrossDatasetResult(
             train_dataset=train_dataset,
@@ -501,6 +618,16 @@ class CrossDatasetEvaluator:
             n_test_total=n_total,
             n_test_evaluated=n_eval,
             n_features=int(train_X.shape[1]),
+            n_train_features_raw=len(train_feat_raw),
+            n_test_features_raw=len(test_feat_raw),
+            n_features_shared=len(shared_features),
+            n_features_dropped_train=len(dropped_train),
+            n_features_dropped_test=len(dropped_test),
+            features_dropped=dropped_train + dropped_test,
+            macro_f1_ci_low=boot_ci_low,
+            macro_f1_ci_high=boot_ci_high,
+            binary_metrics=binary_metrics,
+            majority_baseline=majority_baseline,
             model=self.model_name,
             feature_mode=self.feature_mode,
             seed=seed,
@@ -511,7 +638,9 @@ class CrossDatasetEvaluator:
         return result
 
     def _prepare(self, preprocessor: Preprocessor, train_frame: pd.DataFrame,
-                 test_frame: pd.DataFrame, in_domain: bool, seed: int):
+                 test_frame: pd.DataFrame, in_domain: bool, seed: int,
+                 shared_features: Optional[Sequence[str]] = None,
+                 test_dataset: Optional[str] = None):
         """
         Fit on the training split, then transform the evaluation data.
 
@@ -527,12 +656,16 @@ class CrossDatasetEvaluator:
         splits = preprocessor.split(
             train_frame, test_ratio=self.test_ratio,
             val_ratio=self.val_ratio, seed=seed,
+            allowed_features=shared_features,
         )
         train = splits["train"]
         if in_domain:
             return train["X"], train["y"], splits["test"]["X"], splits["test"]["y"]
 
-        test_X, test_y = preprocessor.transform(test_frame)
+        test_X, test_y = preprocessor.transform(
+            test_frame, dataset=test_dataset, per_domain_scaler=self.per_domain_scaler
+        )
+        return train["X"], train["y"], test_X, test_y
         return train["X"], train["y"], test_X, test_y
 
     def run_full_matrix(self, seed: Optional[int] = None,
