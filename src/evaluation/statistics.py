@@ -13,7 +13,7 @@ Tests used
     Non-parametric *and* parametric options are both offered, because the
     per-seed deltas within a pair are not guaranteed to be normally distributed
     (with 5 seeds that is a hard assumption to make).  ``wilcoxon`` enumerates
-    the exact sign distribution for ``n <= 25`` and falls back to the normal
+    the exact sign distribution for ``n <= 20`` and falls back to the normal
     approximation beyond that.  Note the resolution limit: the smallest
     attainable one-sided exact p is ``0.5 ** n``, so 4 seeds can never reject at
     ``alpha=0.05`` and 5 seeds are the minimum for the exact test to be able to.
@@ -39,7 +39,7 @@ from typing import Callable, Mapping, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-DEFAULT_SEEDS: tuple[int, ...] = (42, 1337, 2024, 7, 99, 12345, 555, 31337)
+DEFAULT_SEEDS: tuple[int, ...] = (42, 123, 456, 789, 1024)
 BOOTSTRAP_RESAMPLES = 10_000
 CI_LEVEL = 0.95
 
@@ -232,7 +232,7 @@ def wilcoxon(before: Sequence[float], after: Sequence[float],
     neg = float(ranks[nonzero < 0].sum())
     w_min = min(pos, neg)
 
-    if n_eff <= 25:
+    if n_eff <= 20:
         p_value = _wilcoxon_exact_p(w_min, n_eff)
         method = "exact"
     else:
@@ -308,7 +308,8 @@ def mcnemar(y_true: Sequence, model_a_pred: Sequence, model_b_pred: Sequence,
             p_value = p_two
         note = f"{a_only} A-only vs {b_only} B-only correct"
 
-    ci_low, ci_high = bootstrap_ci([acc_gap], seed=0, ci_level=ci_level)
+    diffs = correct_a.astype(np.float64) - correct_b.astype(np.float64)
+    ci_low, ci_high = bootstrap_ci(diffs, seed=0, ci_level=ci_level)
     return PairedComparison(
         name="mcnemar", test="mcnemar", statistic=statistic, p_value=float(p_value),
         n_pairs=int(true.size), mean_difference=acc_gap, ci_low=ci_low, ci_high=ci_high,
