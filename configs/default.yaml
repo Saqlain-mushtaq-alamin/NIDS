@@ -42,5 +42,5 @@ evaluation:
   latency_benchmark: true
 
 mlflow:
-  tracking_uri: "file:///d:/canvas/NIDS/experiments/mlruns"
+  tracking_uri: "experiments/mlruns"
   experiment_name: "nids-baseline"
