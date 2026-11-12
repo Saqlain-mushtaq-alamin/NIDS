@@ -308,9 +308,19 @@ class Preprocessor:
 
     def split(self, df: pd.DataFrame, test_ratio: float = 0.2,
               val_ratio: float = 0.1, seed: int = 42,
-              shuffle: bool = True) -> dict:
+              shuffle: bool = True, strategy: str = "stratified",
+              time_column: Optional[str] = None) -> dict:
         """
-        Stratified train/val/test split, fitted on the training rows only.
+        Train/val/test split, fitted on the training rows only.
+
+        Args:
+            df: Input DataFrame.
+            test_ratio: Ratio for test split.
+            val_ratio: Ratio for validation split.
+            seed: RNG seed for reproducible splits.
+            shuffle: Whether to shuffle in random split.
+            strategy: 'time_aware' (primary in-domain) or 'stratified' / 'random' (comparison).
+            time_column: Optional column to sort by for time-aware splitting.
 
         Returns:
             dict with keys ``'train'``, ``'val'``, ``'test'``, each holding
@@ -322,6 +332,21 @@ class Preprocessor:
             raise ValueError(f"val_ratio must be in [0, 1), got {val_ratio}")
         if LABEL_COLUMN not in df.columns:
             raise ValueError(f"'{LABEL_COLUMN}' column required to split")
+
+        if strategy in ("time_aware", "time_day_aware"):
+            from src.data.loader import split_dataset
+            raw_splits = split_dataset(
+                df, strategy="time_aware", test_ratio=test_ratio,
+                val_ratio=val_ratio, seed=seed, time_column=time_column
+            )
+            train_frame = raw_splits["train"]
+            self.fit(train_frame)
+            return {
+                "train": self._materialise(train_frame),
+                "val": self._materialise(raw_splits["val"]) if len(raw_splits["val"]) > 0 else
+                       {"X": np.empty((0, self.n_features_)), "y": np.array([], dtype=object)},
+                "test": self._materialise(raw_splits["test"]),
+            }
 
         labels = as_object_array(df[LABEL_COLUMN].astype(str).to_numpy())
         rows = np.arange(len(df))
