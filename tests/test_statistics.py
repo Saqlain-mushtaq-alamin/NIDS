@@ -194,13 +194,15 @@ class TestWilcoxon:
         assert mine.significant is True
 
     def test_exact_enumeration_limit_is_enforced(self):
+        from src.evaluation.statistics import _wilcoxon_exact_p
+        with pytest.raises(StatisticsError, match="limited to n <= 20"):
+            _wilcoxon_exact_p(5.0, 21)
+
+        # 21 non-zero differences must switch smoothly to normal approximation
         big = list(np.linspace(1.0, 2.0, 21))
-        with pytest.raises(StatisticsError, match="n <= 20"):
-            # 21 non-zero differences would exceed the enumeration ceiling, but
-            # the approximation path must take over first, so this asserts the
-            # documented boundary rather than an error.
-            result = wilcoxon(big, [0.5] * 21, alternative="greater")
-            assert result.n_pairs == 21
+        result = wilcoxon(big, [0.5] * 21, alternative="greater")
+        assert result.n_pairs == 21
+        assert "normal approximation" in result.note
 
 
 # --------------------------------------------------------------------------- #
@@ -250,6 +252,14 @@ class TestMcnemar:
         y_true = rng.choice(["a", "b", "c"], 100)
         pred = rng.choice(["a", "b", "c"], 100)
         assert mcnemar(y_true, pred, pred, alternative="greater").mean_difference == 0.0
+
+    def test_mcnemar_ci_is_non_degenerate_when_discordant_pairs(self):
+        y_true = np.array(["a"] * 50 + ["b"] * 50)
+        pred_a = np.array(["a"] * 45 + ["b"] * 45 + ["b"] * 5 + ["a"] * 5)
+        pred_b = np.array(["a"] * 30 + ["b"] * 30 + ["b"] * 20 + ["a"] * 20)
+        res = mcnemar(y_true, pred_a, pred_b)
+        assert res.ci_low < res.ci_high, f"CI should have non-zero width: [{res.ci_low}, {res.ci_high}]"
+        assert res.ci_low <= res.mean_difference <= res.ci_high
 
 
 # --------------------------------------------------------------------------- #
