@@ -126,3 +126,15 @@ class TestLabelAudit:
         content = auditor.generate_report(report)
         assert "Label Audit Report" in content
         assert "Noise Rate" in content
+
+    def test_label_audit_method_label(self):
+        from src.data.loader import load_dataset
+        from src.data.label_audit import LabelAuditor
+        df = load_dataset("cic-ids-2017")
+        auditor = LabelAuditor(cv_folds=3, seed=42)
+        report = auditor.audit(df)
+        assert report["method"] in ["cv_heuristic", "cleanlab"]
+        try:
+            import cleanlab  # noqa: F401
+        except ImportError:
+            assert report["method"] == "cv_heuristic"
