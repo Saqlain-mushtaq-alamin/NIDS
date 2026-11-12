@@ -217,12 +217,14 @@ def extract_canonical_feature(df: pd.DataFrame, dataset: str, feature: str) -> p
 
     kind = spec.get("kind", "direct")
     columns = spec.get("columns", [])
+    scale = float(spec.get("scale", 1.0))
 
     if kind == "direct":
         name = _resolve(df, columns)
         if name is None:
             return pd.Series(np.nan, index=df.index, dtype=np.float64)
-        return _to_numeric(df[name])
+        out = _to_numeric(df[name])
+        return out * scale if scale != 1.0 else out
 
     if kind == "count_letters":
         name = _resolve(df, columns)
@@ -234,13 +236,14 @@ def extract_canonical_feature(df: pd.DataFrame, dataset: str, feature: str) -> p
         for letter in letters:
             counts = text.map(lambda value, ch=letter: str(value).count(ch))
             total = total + counts.astype(np.float64)
-        return total
+        return total * scale if scale != 1.0 else total
 
     if kind == "ratio":
         resolved = [_resolve(df, [c]) for c in columns]
         if len(resolved) != 2 or any(r is None for r in resolved):
             return pd.Series(np.nan, index=df.index, dtype=np.float64)
-        return _safe_divide(_to_numeric(df[resolved[0]]), _to_numeric(df[resolved[1]]))
+        out = _safe_divide(_to_numeric(df[resolved[0]]), _to_numeric(df[resolved[1]]))
+        return out * scale if scale != 1.0 else out
 
     if kind == "per_second":
         resolved = [_resolve(df, [c]) for c in columns]
@@ -249,8 +252,18 @@ def extract_canonical_feature(df: pd.DataFrame, dataset: str, feature: str) -> p
         first = _to_numeric(df[resolved[0]])
         second = _to_numeric(df[resolved[1]])
         total = first + second if spec.get("total", False) else first
-        seconds = _to_numeric(df["flow_duration"]) / 1_000_000.0
-        return _safe_divide(total, seconds)
+        dur_col = _resolve(df, ["flow_duration", "Flow Duration", "dur", "duration", "FLOW_DURATION_MILLISECONDS"])
+        if dur_col is None:
+            return pd.Series(np.nan, index=df.index, dtype=np.float64)
+        dur = _to_numeric(df[dur_col])
+        if dur_col.lower() == "flow_duration_milliseconds":
+            seconds = dur / 1000.0
+        elif dur_col.lower() in ("dur", "duration"):
+            seconds = dur
+        else:
+            seconds = np.where(dur > 1000, dur / 1_000_000.0, dur)
+        out = _safe_divide(total, pd.Series(seconds, index=df.index))
+        return out * scale if scale != 1.0 else out
 
     raise ValueError(f"Unknown column-map kind '{kind}' for feature '{feature}'")
 
