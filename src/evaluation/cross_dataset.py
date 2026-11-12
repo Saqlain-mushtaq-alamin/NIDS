@@ -826,8 +826,22 @@ class CrossDatasetEvaluator:
                 "macro_f1": float(group["macro_f1"].mean()),
                 "macro_f1_std": (float(group["macro_f1"].std(ddof=1))
                                  if group["macro_f1"].size > 1 else 0.0),
+                "macro_f1_ci_low": float(group["macro_f1_ci_low"].mean()) if "macro_f1_ci_low" in group else float("nan"),
+                "macro_f1_ci_high": float(group["macro_f1_ci_high"].mean()) if "macro_f1_ci_high" in group else float("nan"),
+                "binary_f1": float(group["binary_f1"].mean()) if "binary_f1" in group else float("nan"),
+                "binary_recall": float(group["binary_recall"].mean()) if "binary_recall" in group else float("nan"),
+                "binary_fpr": float(group["binary_fpr"].mean()) if "binary_fpr" in group else float("nan"),
+                "binary_auroc": float(group["binary_auroc"].mean()) if "binary_auroc" in group else float("nan"),
+                "binary_mcc": float(group["binary_mcc"].mean()) if "binary_mcc" in group else float("nan"),
+                "majority_class": str(group["majority_class"].iloc[0]) if "majority_class" in group else "",
+                "majority_macro_f1": float(group["majority_macro_f1"].mean()) if "majority_macro_f1" in group else float("nan"),
+                "majority_binary_f1": float(group["majority_binary_f1"].mean()) if "majority_binary_f1" in group else float("nan"),
                 "test_coverage": float(group["test_coverage"].mean()),
                 "n_features": int(group["n_train_features"].iloc[0]),
+                "n_features_shared": int(group["n_features_shared"].iloc[0]) if "n_features_shared" in group else int(group["n_train_features"].iloc[0]),
+                "n_features_dropped_train": int(group["n_features_dropped_train"].iloc[0]) if "n_features_dropped_train" in group else 0,
+                "n_features_dropped_test": int(group["n_features_dropped_test"].iloc[0]) if "n_features_dropped_test" in group else 0,
+                "features_dropped": str(group["features_dropped"].iloc[0]) if "features_dropped" in group else "",
                 "n_train": int(group["n_train"].mean()),
                 "n_test_evaluated": int(group["n_test_evaluated"].mean()),
                 "n_test_total": int(group["n_test_total"].mean()),
@@ -876,6 +890,11 @@ class CrossDatasetEvaluator:
         )
         n_off = int((~table["in_domain"]).sum())
         n_off_worse = int((table.loc[~table["in_domain"], "f1_delta"] > 0).sum())
+        mean_maj_f1 = float(table["majority_macro_f1"].mean()) if "majority_macro_f1" in table else float("nan")
+        mean_bin_f1 = float(table["binary_f1"].mean()) if "binary_f1" in table else float("nan")
+
+        n_datasets = len(summary['datasets'])
+        n_pairs = len(table)
 
         lines = [
             f"# Cross-Dataset Generalization Report - `{self.feature_mode}` features",
@@ -883,8 +902,11 @@ class CrossDatasetEvaluator:
             f"* Model: `{summary['model']}`  |  Feature mode: `{self.feature_mode}`  |  "
             f"Datasets: {', '.join(summary['datasets'])}",
             f"* Seeds: {', '.join(str(s) for s in seeds)} ({n_seeds} independent passes)",
-            f"* Pairs: {len(table)} ordered pairs "
-            f"({len(summary['datasets'])} datasets, diagonal included)",
+            f"* Pairs: {n_pairs} ordered pairs ({n_datasets} datasets, diagonal included)",
+            "",
+            "> [!NOTE]",
+            f"> Scientific inference is limited strictly to the evaluated datasets (N={n_datasets} datasets, "
+            f"{n_pairs} directed pairs); pair observations share dataset marginals and are not independent.",
             "",
             "## Headline",
             "",
@@ -892,6 +914,8 @@ class CrossDatasetEvaluator:
             "|---|---|",
             f"| Mean in-domain macro-F1 | {diagonal:.4f} |",
             f"| Mean cross-domain macro-F1 | {off:.4f} |",
+            f"| Mean majority-baseline macro-F1 | {mean_maj_f1:.4f} |",
+            f"| Mean binary Benign-vs-Attack F1 | {mean_bin_f1:.4f} |",
             f"| Mean F1 delta (in - cross) | **{delta:.4f}** |",
             f"| Cross-domain F1 retention | {retention} |",
             f"| Mean test-label coverage | {summary['mean_test_coverage']:.1%} |",
@@ -902,41 +926,56 @@ class CrossDatasetEvaluator:
             "Values are means over seeds; `+/-` is the sample standard deviation "
             "across seeds.",
             "",
-            "## Full matrix",
+            "## Full Matrix (Multi-Class & Baseline)",
             "",
-            "| Train | Test | In-domain | ACC | P | R | F1 | macro-F1 | "
-            "In-domain ref | dF1 | Test cov. | Feat. |",
-            "|---|---|---|---|---|---|---|---|---|---|---|---|",
+            "| Train | Test | In-domain | Macro-F1 (Mean +/- Std) | Row 95% CI | Maj-Class Macro-F1 | In-domain Ref | dF1 | Shared Feat. | Test Cov. |",
+            "|---|---|---|---|---|---|---|---|---|---|",
         ]
 
         for _, row in table.iterrows():
             delta_text = f"{row['f1_delta']:+.4f}" if not row["in_domain"] else "ref"
+            ci_text = f"[{row['macro_f1_ci_low']:.4f}, {row['macro_f1_ci_high']:.4f}]" if not np.isnan(row['macro_f1_ci_low']) else "n/a"
             lines.append(
                 f"| {row['train_dataset']} | {row['test_dataset']} | "
                 f"{'yes' if row['in_domain'] else 'no'} | "
-                f"{row['accuracy']:.4f} | {row['precision']:.4f} | "
-                f"{row['recall']:.4f} | {row['f1']:.4f} | "
                 f"{row['macro_f1']:.4f} +/-{row['macro_f1_std']:.4f} | "
+                f"{ci_text} | {row['majority_macro_f1']:.4f} | "
                 f"{row['in_domain_macro_f1']:.4f} | {delta_text} | "
-                f"{row['test_coverage']:.0%} | {int(row['n_features'])} |"
+                f"{int(row['n_features_shared'])} | {row['test_coverage']:.0%} |"
             )
 
         lines += [
             "",
-            "## Per-dataset detail",
+            "## Binary Benign-vs-Attack Performance",
             "",
-            "| Train | Test | Shared labels | Test-only labels | Test rows evaluated | Note |",
+            "| Train | Test | In-domain | Binary F1 | Recall | FPR | AUROC | MCC | Majority Binary F1 |",
+            "|---|---|---|---|---|---|---|---|---|",
+        ]
+
+        for _, row in table.iterrows():
+            auroc_text = f"{row['binary_auroc']:.4f}" if not np.isnan(row['binary_auroc']) else "n/a"
+            lines.append(
+                f"| {row['train_dataset']} | {row['test_dataset']} | "
+                f"{'yes' if row['in_domain'] else 'no'} | "
+                f"{row['binary_f1']:.4f} | {row['binary_recall']:.4f} | "
+                f"{row['binary_fpr']:.4f} | {auroc_text} | "
+                f"{row['binary_mcc']:.4f} | {row['majority_binary_f1']:.4f} |"
+            )
+
+        lines += [
+            "",
+            "## Feature Harmonization & Drop Detail",
+            "",
+            "| Train | Test | Shared Features | Train Features Dropped | Test Features Dropped | Dropped Names |",
             "|---|---|---|---|---|---|",
         ]
 
         for _, row in table.iterrows():
-            shared = row["shared_labels"].replace("|", ", ") or "-"
-            only = row["test_only_labels"].replace("|", ", ") or "-"
-            note = "label subset excluded" if row["test_coverage"] < 1.0 else "-"
+            dropped_names = row['features_dropped'].replace("|", ", ") or "-"
             lines.append(
-                f"| {row['train_dataset']} | {row['test_dataset']} | {shared} | "
-                f"{only} | {int(row['n_test_evaluated']):,} / "
-                f"{int(row['n_test_total']):,} | {note} |"
+                f"| {row['train_dataset']} | {row['test_dataset']} | "
+                f"{int(row['n_features_shared'])} | {int(row['n_features_dropped_train'])} | "
+                f"{int(row['n_features_dropped_test'])} | {dropped_names} |"
             )
 
         lines += [
@@ -948,13 +987,11 @@ class CrossDatasetEvaluator:
             "",
             "The in-domain reference for a pair `A->B` is the diagonal cell `A->A`: "
             "the same model family and the same feature space, evaluated on "
-            "held-out data from the training domain. dF1 therefore isolates the "
+            "held-out data from the training domain. dF1 isolates the "
             "cost of transfer from the quality of the in-domain fit.",
             "",
-            "Cells with `Test cov. < 100%` are scored only on labels the model was "
-            "trained to emit; the excluded rows are listed above rather than "
-            "silently dropped. Predictions that fall outside the trained label set "
-            "are counted as errors.",
+            "Multi-class macro-F1 is evaluated strictly over shared labels with `labels=shared_labels`.",
+            "Evaluation uses the strict feature intersection between train and test domains, with zero dummy imputation.",
             "",
         ]
 
@@ -966,6 +1003,88 @@ class CrossDatasetEvaluator:
 
         output_path.write_text("\n".join(lines), encoding="utf-8")
         return output_path
+
+
+def run_ablation_grid(
+    datasets: Sequence[str] = ("cic-ids-2017", "unsw-nb15"),
+    seeds: Sequence[int] = (42, 123, 456, 789, 1024),
+    feature_modes: Sequence[str] = ("full", "behavior_only"),
+    transforms: Sequence[str] = ("raw", "log1p"),
+    scalers: Sequence[str] = ("train_fitted", "per_domain"),
+    models: Sequence[str] = ("xgb", "rf", "dnn", "lr"),
+    output_dir: Optional[Union[Path, str]] = None,
+    min_test_rows: int = 500,
+    logger=None,
+) -> pd.DataFrame:
+    """
+    Run the Phase 2 ablation grid across:
+      {full, behavior_only} x {raw, log1p} x {train-fitted scaler, per-domain scaler} x {xgb, rf, dnn, lr}.
+
+    Identifies which factor (features, log-scaling, domain adaptation, or architecture)
+    recovers or explains cross-dataset transfer collapse.
+    """
+    out_dir = Path(output_dir) if output_dir is not None else _RESULTS_DIR / "phase2"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    def _factory(name: str, s: int):
+        name_lower = str(name).lower()
+        if name_lower == "xgb":
+            from src.models.baseline_xgb import XGBBaseline
+            return lambda: XGBBaseline(n_estimators=100, max_depth=6, learning_rate=0.05, random_state=s, n_jobs=4)
+        elif name_lower == "rf":
+            from src.models.baseline_rf import RFBaseline
+            return lambda: RFBaseline(n_estimators=100, max_depth=12, random_state=s, n_jobs=4)
+        elif name_lower == "dnn":
+            from src.models.baseline_dnn import DNNBaseline
+            return lambda: DNNBaseline(epochs=15, batch_size=128, random_state=s)
+        elif name_lower == "lr":
+            from sklearn.linear_model import LogisticRegression
+            return lambda: LogisticRegression(max_iter=1000, random_state=s, class_weight="balanced")
+        else:
+            raise ValueError(f"Unknown model in ablation grid: {name}")
+
+    all_rows = []
+    total_configs = len(feature_modes) * len(transforms) * len(scalers) * len(models)
+    config_idx = 0
+
+    for f_mode in feature_modes:
+        for trans in transforms:
+            for sc in scalers:
+                for mod in models:
+                    config_idx += 1
+                    if logger:
+                        logger.info(
+                            "[%d/%d] Ablation: mode=%s, transform=%s, scaler=%s, model=%s",
+                            config_idx, total_configs, f_mode, trans, sc, mod,
+                        )
+                    for s in seeds:
+                        evaluator = CrossDatasetEvaluator(
+                            datasets=datasets,
+                            model_factory=_factory(mod, s),
+                            feature_mode=f_mode,
+                            seed=s,
+                            log1p=(trans == "log1p"),
+                            per_domain_scaler=(sc == "per_domain"),
+                            min_test_rows=min_test_rows,
+                            model_name=mod,
+                        )
+                        matrix = evaluator.run_full_matrix()
+                        for _, row in matrix.iterrows():
+                            row_dict = dict(row)
+                            row_dict["ablation_feature_mode"] = f_mode
+                            row_dict["ablation_transform"] = trans
+                            row_dict["ablation_scaler"] = sc
+                            row_dict["ablation_model"] = mod
+                            all_rows.append(row_dict)
+
+    ablation_df = pd.DataFrame(all_rows)
+    ablation_csv = out_dir / "cross_dataset_ablation.csv"
+    ablation_df.to_csv(ablation_csv, index=False)
+
+    if logger:
+        logger.info("Saved ablation grid results to %s", ablation_csv)
+
+    return ablation_df
 
 
 def cross_dataset_matrix(datasets, model_factory: Callable[[], object], **kwargs) -> pd.DataFrame:
@@ -982,4 +1101,5 @@ __all__ = [
     "CrossDatasetResult",
     "RESULT_COLUMNS",
     "cross_dataset_matrix",
+    "run_ablation_grid",
 ]
