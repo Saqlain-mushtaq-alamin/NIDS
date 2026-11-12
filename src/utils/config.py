@@ -5,6 +5,9 @@ from pathlib import Path
 from typing import Any, Dict
 import yaml
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
 class ConfigDict(dict):
     """Dictionary subclass supporting attribute dot notation."""
     def __init__(self, data: Dict[str, Any]):
@@ -36,7 +39,7 @@ def load_config(config_path: str = "configs/default.yaml") -> ConfigDict:
     """
     path = Path(config_path)
     if not path.is_absolute():
-        path = Path(r"d:\canvas\NIDS") / path
+        path = _PROJECT_ROOT / path
         
     if not path.is_file():
         raise FileNotFoundError(f"Configuration file not found: {path}")
