@@ -928,7 +928,7 @@ class CrossDatasetEvaluator:
             "Values are means over seeds; `+/-` is the sample standard deviation "
             "across seeds.",
             "",
-            "## Full Matrix (Multi-Class & Baseline)",
+            "## Full matrix",
             "",
             "| Train | Test | In-domain | Macro-F1 (Mean +/- Std) | Row 95% CI | Maj-Class Macro-F1 | In-domain Ref | dF1 | Shared Feat. | Test Cov. |",
             "|---|---|---|---|---|---|---|---|---|---|",
@@ -944,6 +944,24 @@ class CrossDatasetEvaluator:
                 f"{ci_text} | {row['majority_macro_f1']:.4f} | "
                 f"{row['in_domain_macro_f1']:.4f} | {delta_text} | "
                 f"{int(row['n_features_shared'])} | {row['test_coverage']:.0%} |"
+            )
+
+        lines += [
+            "",
+            "## Per-dataset detail",
+            "",
+            "| Train | Test | Shared labels | Test-only labels | Test rows evaluated | Note |",
+            "|---|---|---|---|---|---|",
+        ]
+
+        for _, row in table.iterrows():
+            shared = row["shared_labels"].replace("|", ", ") or "-"
+            only = row["test_only_labels"].replace("|", ", ") or "-"
+            note = "label subset excluded" if row["test_coverage"] < 1.0 else "-"
+            lines.append(
+                f"| {row['train_dataset']} | {row['test_dataset']} | {shared} | "
+                f"{only} | {int(row['n_test_evaluated']):,} / "
+                f"{int(row['n_test_total']):,} | {note} |"
             )
 
         lines += [
