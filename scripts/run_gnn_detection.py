@@ -128,7 +128,7 @@ def run(seed: int = 42, windows_per_scenario: int = 40, epochs: int = 120,
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 1337, 2024])
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 123, 456, 789, 1024])
     parser.add_argument("--windows", type=int, default=40,
                         help="windows generated per scenario")
     parser.add_argument("--epochs", type=int, default=120)

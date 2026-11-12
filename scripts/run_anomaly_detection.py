@@ -118,7 +118,7 @@ def run(dataset: str = "lab_flows", latent_dim: int = 16, epochs: int = 100,
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--dataset", default="lab_flows")
-    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 1337])
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 123, 456, 789, 1024])
     parser.add_argument("--latent-dim", type=int, default=16)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--percentile", type=float, default=99.0)

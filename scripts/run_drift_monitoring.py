@@ -106,7 +106,7 @@ def run(seed: int = 42, n_samples: int = 1200, n_features: int = 8,
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 1337])
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 123, 456, 789, 1024])
     parser.add_argument("--samples", type=int, default=1200)
     parser.add_argument("--features", type=int, default=8)
     parser.add_argument("--top-k", type=int, default=6)
