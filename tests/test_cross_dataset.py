@@ -462,6 +462,10 @@ def test_run_cross_dataset_quick(tmp_path):
         "cross_dataset_full_xgb_stats.csv",
         "cross_dataset_full_xgb_report.md",
         "cross_dataset_full_xgb_summary.json",
+        "cross_dataset_matrix.csv",
+        "cross_dataset_stats.csv",
+        "cross_dataset_report.md",
+        "cross_dataset_summary.json",
     ]
     for name in expected:
         assert (tmp_path / name).exists(), name
@@ -470,3 +474,89 @@ def test_run_cross_dataset_quick(tmp_path):
                          .read_text(encoding="utf-8"))
     assert summary["n_cells"] == 4
     assert summary["in_domain_macro_f1_mean"] > summary["cross_domain_macro_f1_mean"]
+
+
+# --------------------------------------------------------------------------- #
+# Task 2 protocol tests
+# --------------------------------------------------------------------------- #
+class TestTask2Protocols:
+    def test_feature_intersection_drops_and_reports(self):
+        """Evaluating on intersection drops features and reports counts."""
+        frame_a = make_frame(n=100, seed=1, feature_names=("f1", "f2", "f3"), labels=("Benign", "Attack"))
+        frame_b = make_frame(n=100, seed=2, feature_names=("f2", "f3", "g1"), labels=("Benign", "Attack"))
+        evaluator = CrossDatasetEvaluator(
+            datasets={"A": frame_a, "B": frame_b},
+            model_factory=lambda: ConstantModel("Benign"),
+        )
+        res = evaluator.run_pair("A", "B")
+        assert res.n_features_shared == 2
+        assert res.n_features_dropped_train == 1
+        assert res.n_features_dropped_test == 1
+        assert "f1" in res.features_dropped
+        assert "g1" in res.features_dropped
+        assert res.n_features == 2
+
+    def test_disjoint_features_raises(self):
+        """Disjoint features cannot be evaluated."""
+        frame_a = make_frame(n=100, seed=1, feature_names=("f1", "f2"))
+        frame_b = make_frame(n=100, seed=2, feature_names=("g1", "g2"))
+        evaluator = CrossDatasetEvaluator(
+            datasets={"A": frame_a, "B": frame_b},
+            model_factory=ConstantModel,
+        )
+        with pytest.raises(CrossDatasetError, match="share no features"):
+            evaluator.run_pair("A", "B")
+
+    def test_min_test_rows_fails_loudly(self):
+        """Enforces minimum test set size rule."""
+        frame_a = make_frame(n=100, seed=1, feature_names=("f1", "f2"))
+        frame_b = make_frame(n=100, seed=2, feature_names=("f1", "f2"))
+        evaluator = CrossDatasetEvaluator(
+            datasets={"A": frame_a, "B": frame_b},
+            model_factory=ConstantModel,
+            min_test_rows=500,
+        )
+        with pytest.raises(ValueError, match="smaller than min_test_rows"):
+            evaluator.run_pair("A", "B")
+
+    def test_binary_metrics_and_majority_baseline(self):
+        """Every result includes binary metrics and majority-class baseline."""
+        frame_a = make_frame(n=100, seed=1, feature_names=("f1", "f2"), labels=("Benign", "Attack"))
+        frame_b = make_frame(n=100, seed=2, feature_names=("f1", "f2"), labels=("Benign", "Attack"))
+        evaluator = CrossDatasetEvaluator(
+            datasets={"A": frame_a, "B": frame_b},
+            model_factory=lambda: ConstantModel("Benign"),
+        )
+        res = evaluator.run_pair("A", "B")
+        row = res.to_row()
+        assert "binary_f1" in row
+        assert "binary_recall" in row
+        assert "binary_fpr" in row
+        assert "binary_mcc" in row
+        assert "majority_class" in row
+        assert "majority_accuracy" in row
+        assert "majority_macro_f1" in row
+        assert "majority_binary_f1" in row
+        assert row["majority_class"] in ("Benign", "Attack")
+
+    def test_ablation_grid_smoke(self, tmp_path):
+        """Ablation grid runs across factors and outputs cross_dataset_ablation.csv."""
+        from src.evaluation.cross_dataset import run_ablation_grid
+        frame_a = make_frame(n=100, seed=1, feature_names=("f1", "f2"), labels=("Benign", "Attack"))
+        frame_b = make_frame(n=100, seed=2, feature_names=("f1", "f2"), labels=("Benign", "Attack"))
+
+        df = run_ablation_grid(
+            datasets={"A": frame_a, "B": frame_b},
+            seeds=[42],
+            feature_modes=["full"],
+            transforms=["raw"],
+            scalers=["train_fitted"],
+            models=["lr"],
+            output_dir=tmp_path,
+            min_test_rows=0,
+        )
+        assert len(df) == 4
+        assert (tmp_path / "cross_dataset_ablation.csv").exists()
+        assert "ablation_model" in df.columns
+        assert "ablation_scaler" in df.columns
+
