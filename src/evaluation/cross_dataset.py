@@ -662,10 +662,12 @@ class CrossDatasetEvaluator:
         if in_domain:
             return train["X"], train["y"], splits["test"]["X"], splits["test"]["y"]
 
-        test_X, test_y = preprocessor.transform(
-            test_frame, dataset=test_dataset, per_domain_scaler=self.per_domain_scaler
-        )
-        return train["X"], train["y"], test_X, test_y
+        try:
+            test_X, test_y = preprocessor.transform(
+                test_frame, dataset=test_dataset, per_domain_scaler=self.per_domain_scaler
+            )
+        except TypeError:
+            test_X, test_y = preprocessor.transform(test_frame)
         return train["X"], train["y"], test_X, test_y
 
     def run_full_matrix(self, seed: Optional[int] = None,
