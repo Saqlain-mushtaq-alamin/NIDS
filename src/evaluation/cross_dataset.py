@@ -58,6 +58,15 @@ from src.evaluation.metrics import (
     per_class_report,
 )
 from src.utils.pandas_compat import apply_pandas_compat, as_object_array
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    matthews_corrcoef,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 
 apply_pandas_compat()
 
@@ -79,10 +88,27 @@ RESULT_COLUMNS = [
     "recall",
     "f1",
     "macro_f1",
+    "macro_f1_ci_low",
+    "macro_f1_ci_high",
     "mcc",
+    "binary_f1",
+    "binary_recall",
+    "binary_fpr",
+    "binary_auroc",
+    "binary_mcc",
+    "majority_class",
+    "majority_accuracy",
+    "majority_macro_f1",
+    "majority_binary_f1",
     "n_train",
     "n_test_total",
     "n_test_evaluated",
+    "n_train_features_raw",
+    "n_test_features_raw",
+    "n_features_shared",
+    "n_features_dropped_train",
+    "n_features_dropped_test",
+    "features_dropped",
     "n_train_features",
     "n_shared_labels",
     "test_coverage",
@@ -104,6 +130,25 @@ def _as_array(labels) -> np.ndarray:
     return as_object_array(array.astype(str))
 
 
+def _bootstrap_macro_f1(y_true: np.ndarray, y_pred: np.ndarray,
+                        shared_labels: Sequence[str],
+                        n_resamples: int = 1000, seed: int = 42) -> tuple[float, float]:
+    """Row-level bootstrap 95% confidence interval for macro-F1 over shared labels."""
+    if len(y_true) < 2:
+        return float("nan"), float("nan")
+    rng = np.random.default_rng(seed)
+    n = len(y_true)
+    indices = np.arange(n)
+    boot_scores = np.empty(n_resamples, dtype=np.float64)
+    for i in range(n_resamples):
+        sample_idx = rng.choice(indices, size=n, replace=True)
+        boot_scores[i] = f1_score(
+            y_true[sample_idx], y_pred[sample_idx],
+            labels=shared_labels, average="macro", zero_division=0,
+        )
+    return float(np.percentile(boot_scores, 2.5)), float(np.percentile(boot_scores, 97.5))
+
+
 @dataclass
 class CrossDatasetResult:
     """Metrics and bookkeeping for a single ordered (train, test) pair."""
@@ -118,6 +163,16 @@ class CrossDatasetResult:
     n_test_total: int
     n_test_evaluated: int
     n_features: int
+    n_train_features_raw: int = 0
+    n_test_features_raw: int = 0
+    n_features_shared: int = 0
+    n_features_dropped_train: int = 0
+    n_features_dropped_test: int = 0
+    features_dropped: list[str] = field(default_factory=list)
+    macro_f1_ci_low: float = float("nan")
+    macro_f1_ci_high: float = float("nan")
+    binary_metrics: dict = field(default_factory=dict)
+    majority_baseline: dict = field(default_factory=dict)
     per_class: Optional[pd.DataFrame] = None
     confusion_matrix: Optional[np.ndarray] = None
     model: str = "model"
@@ -134,6 +189,8 @@ class CrossDatasetResult:
 
     def to_row(self) -> dict:
         """Flatten to a single :data:`RESULT_COLUMNS`-shaped dict."""
+        bin_m = self.binary_metrics
+        maj_b = self.majority_baseline
         return {
             "train_dataset": self.train_dataset,
             "test_dataset": self.test_dataset,
@@ -141,15 +198,32 @@ class CrossDatasetResult:
             "model": self.model,
             "feature_mode": self.feature_mode,
             "seed": self.seed,
-            "accuracy": self.metrics["accuracy"],
-            "precision": self.metrics["precision"],
-            "recall": self.metrics["recall"],
-            "f1": self.metrics["f1"],
-            "macro_f1": self.metrics["macro_f1"],
-            "mcc": self.metrics["mcc"],
+            "accuracy": self.metrics.get("accuracy", float("nan")),
+            "precision": self.metrics.get("precision", float("nan")),
+            "recall": self.metrics.get("recall", float("nan")),
+            "f1": self.metrics.get("f1", float("nan")),
+            "macro_f1": self.metrics.get("macro_f1", float("nan")),
+            "macro_f1_ci_low": self.macro_f1_ci_low,
+            "macro_f1_ci_high": self.macro_f1_ci_high,
+            "mcc": self.metrics.get("mcc", float("nan")),
+            "binary_f1": bin_m.get("binary_f1", float("nan")),
+            "binary_recall": bin_m.get("binary_recall", float("nan")),
+            "binary_fpr": bin_m.get("binary_fpr", float("nan")),
+            "binary_auroc": bin_m.get("binary_auroc", float("nan")),
+            "binary_mcc": bin_m.get("binary_mcc", float("nan")),
+            "majority_class": maj_b.get("majority_class", ""),
+            "majority_accuracy": maj_b.get("majority_accuracy", float("nan")),
+            "majority_macro_f1": maj_b.get("majority_macro_f1", float("nan")),
+            "majority_binary_f1": maj_b.get("majority_binary_f1", float("nan")),
             "n_train": self.n_train,
             "n_test_total": self.n_test_total,
             "n_test_evaluated": self.n_test_evaluated,
+            "n_train_features_raw": self.n_train_features_raw,
+            "n_test_features_raw": self.n_test_features_raw,
+            "n_features_shared": self.n_features_shared,
+            "n_features_dropped_train": self.n_features_dropped_train,
+            "n_features_dropped_test": self.n_features_dropped_test,
+            "features_dropped": "|".join(self.features_dropped),
             "n_train_features": self.n_features,
             "n_shared_labels": len(self.shared_labels),
             "test_coverage": self.test_coverage,
