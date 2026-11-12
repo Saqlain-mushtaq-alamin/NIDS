@@ -15,7 +15,7 @@ data:
   primary_dataset: "lycos-ids-2017"
   cross_eval_datasets:
     - "unsw-nb15"
-    - "lab-captured"
+    - "lab-simulated"
   test_split_ratio: 0.2
   val_split_ratio: 0.1
   stratified: true
