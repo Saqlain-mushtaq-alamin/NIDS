@@ -34,7 +34,8 @@ class TestDataLoading:
     def test_label_mapping_coverage(self):
         import yaml
         from src.data.loader import load_dataset
-        config_path = Path(r"D:\canvas\NIDS\configs\label_mappings.yaml")
+        project_root = Path(__file__).resolve().parent.parent
+        config_path = project_root / "configs" / "label_mappings.yaml"
         with open(config_path) as f:
             mappings = yaml.safe_load(f)
         df = load_dataset("cic-ids-2017")
@@ -44,6 +45,55 @@ class TestDataLoading:
             mapped_labels.add(v)
         unmapped = raw_labels - mapped_labels - {"Other"}
         assert not unmapped, f"Unmapped labels: {unmapped}"
+
+    def test_metadata_isolation(self):
+        from src.data.loader import load_dataset
+        df = load_dataset("cic-ids-2017", drop_non_features=True)
+        assert hasattr(df, "attrs") and "metadata" in df.attrs
+        metadata = df.attrs["metadata"]
+        assert len(metadata) == len(df)
+        # Identity columns should not be in features
+        for col in ["source ip", "destination ip", "timestamp", "src_ip", "dst_ip"]:
+            assert col not in [c.lower() for c in df.columns]
+
+    def test_minimum_rows_failure(self):
+        import pandas as pd
+        from src.data.loader import load_dataset
+        with pytest.raises(ValueError, match=r"minimum \d+ rows required"):
+            load_dataset("cic-ids-2017", min_rows=1_000_000)
+
+    def test_split_dataset_strategies(self):
+        from src.data.loader import load_dataset, split_dataset
+        df = load_dataset("cic-ids-2017")
+        # Time-aware split
+        splits_time = split_dataset(df, strategy="time_aware", test_ratio=0.2, val_ratio=0.1)
+        assert len(splits_time["train"]) + len(splits_time["val"]) + len(splits_time["test"]) == len(df)
+        assert len(splits_time["test"]) >= 500
+        # Random split
+        splits_rand = split_dataset(df, strategy="random", test_ratio=0.2, val_ratio=0.1, seed=42)
+        assert len(splits_rand["train"]) + len(splits_rand["val"]) + len(splits_rand["test"]) == len(df)
+        assert len(splits_rand["test"]) >= 500
+
+    def test_harmonized_units_comparable_magnitude(self):
+        from src.data.loader import load_dataset
+        from src.data.feature_extractor import align_to_canonical
+        cic_df = load_dataset("cic-ids-2017", drop_non_features=False)
+        unsw_df = load_dataset("unsw-nb15", drop_non_features=False)
+        
+        cic_canon = align_to_canonical(cic_df, "cic-ids-2017")
+        unsw_canon = align_to_canonical(unsw_df, "unsw-nb15")
+        
+        cic_dur = cic_canon["flow_duration"].dropna()
+        unsw_dur = unsw_canon["flow_duration"].dropna()
+        
+        assert len(cic_dur) > 0 and len(unsw_dur) > 0
+        cic_median = float(cic_dur.median())
+        unsw_median = float(unsw_dur.median())
+        
+        # After harmonization, durations should be in seconds with comparable magnitude
+        # (Ratio between 0.001 and 1000, NOT 10^6 which happens if microseconds vs seconds)
+        ratio = cic_median / max(unsw_median, 1e-6)
+        assert 0.001 <= ratio <= 1000.0, f"Harmonized durations have divergent magnitudes: cic={cic_median}, unsw={unsw_median}, ratio={ratio}"
 
 
 class TestPreprocessing:
@@ -94,7 +144,7 @@ class TestPreprocessing:
         df = load_dataset("cic-ids-2017")
         prep = Preprocessor()
         prep.fit_transform(df)
-        save_path = Path(r"D:\canvas\NIDS\experiments\test_preprocessor.joblib")
+        save_path = Path(__file__).resolve().parent.parent / "experiments" / "test_preprocessor.joblib"
         save_path.parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(prep, save_path)
         loaded = joblib.load(save_path)
