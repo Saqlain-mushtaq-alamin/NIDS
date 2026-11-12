@@ -450,16 +450,15 @@ class CrossDatasetEvaluator:
         test_frame = self._load(test_dataset)
 
         # Feature intersection protocol:
-        # Determine available features in train and test frame
-        p_train = self._build_preprocessor(train_dataset)
-        train_proj = p_train.project_features(train_frame, dataset=train_dataset)
+        # Determine available features in train and test frame using preprocessor
+        preprocessor = self._build_preprocessor(train_dataset)
+        train_proj = preprocessor.project_features(train_frame, dataset=train_dataset)
         train_feat_raw = [
             c for c in train_proj.columns
             if pd.api.types.is_numeric_dtype(train_proj[c]) and train_proj[c].notna().sum() > 0
         ]
 
-        p_test = self._build_preprocessor(test_dataset)
-        test_proj = p_test.project_features(test_frame, dataset=test_dataset)
+        test_proj = preprocessor.project_features(test_frame, dataset=test_dataset)
         test_feat_raw = [
             c for c in test_proj.columns
             if pd.api.types.is_numeric_dtype(test_proj[c]) and test_proj[c].notna().sum() > 0
@@ -481,7 +480,6 @@ class CrossDatasetEvaluator:
                 "cross-dataset evaluation requires non-empty feature intersection."
             )
 
-        preprocessor = self._build_preprocessor(train_dataset)
         train_X, train_y, test_X, test_y = self._prepare(
             preprocessor, train_frame, test_frame,
             in_domain=(train_dataset == test_dataset), seed=seed,
