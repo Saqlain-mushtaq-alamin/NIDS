@@ -96,7 +96,7 @@ class Preprocessor:
 
     def __init__(self, drop_ip_port: bool = True, normalization: str = "robust",
                  feature_mode: str = "full", variance_threshold: float = 1e-8,
-                 dataset: Optional[str] = None):
+                 dataset: Optional[str] = None, log1p: bool = False):
         """
         Args:
             drop_ip_port: Drop identity columns (IP / port / protocol).
@@ -107,6 +107,7 @@ class Preprocessor:
             dataset: Registry key used to resolve the canonical behaviour schema.
                 Strongly recommended for the behaviour modes; without it the frame
                 must already use canonical column names.
+            log1p: When True, apply sign(x) * log1p(|x|) before scaling.
         """
         if feature_mode not in FEATURE_MODES:
             raise ValueError(
@@ -122,6 +123,7 @@ class Preprocessor:
         self.feature_mode = feature_mode
         self.variance_threshold = variance_threshold
         self.dataset = dataset
+        self.log1p = bool(log1p)
 
         self.scaler_: Optional[RobustScaler] = None
         self.feature_names_: list[str] = []
@@ -189,7 +191,7 @@ class Preprocessor:
             raise ValueError(f"Behaviour schema declares identity columns: {leaked}")
         return names
 
-    def _project(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _project(self, df: pd.DataFrame, dataset: Optional[str] = None) -> pd.DataFrame:
         """
         Map ``df`` onto the model input space.
 
@@ -202,10 +204,11 @@ class Preprocessor:
             return df[keep].copy()
 
         wanted = self._behavior_schema()
+        target_ds = dataset if dataset is not None else self.dataset
 
-        if self.dataset is not None:
+        if target_ds is not None:
             from src.data.feature_extractor import align_to_canonical
-            return align_to_canonical(df, self.dataset, wanted)
+            return align_to_canonical(df, target_ds, wanted)
 
         lowered = {str(c).strip().lower(): c for c in df.columns}
         projected = pd.DataFrame(index=df.index)
@@ -216,6 +219,11 @@ class Preprocessor:
             else:
                 projected[name] = pd.to_numeric(df[source], errors="coerce")
         return projected
+
+    def project_features(self, df: pd.DataFrame, dataset: Optional[str] = None) -> pd.DataFrame:
+        """Return projected features for a dataframe before imputation/scaling."""
+        raw = self._finite(df.drop(columns=[LABEL_COLUMN], errors="ignore"))
+        return self._project(raw, dataset=dataset)
 
     def _finite(self, df: pd.DataFrame) -> pd.DataFrame:
         numeric = self._numeric_columns(df)
@@ -237,7 +245,8 @@ class Preprocessor:
         return values
 
     # -- fit / transform ----------------------------------------------------
-    def fit(self, df: pd.DataFrame) -> "Preprocessor":
+    def fit(self, df: pd.DataFrame,
+            allowed_features: Optional[Sequence[str]] = None) -> "Preprocessor":
         """Fit the preprocessor on **training** data only."""
         labels = self._labels(df)
         if labels is not None:
@@ -246,7 +255,7 @@ class Preprocessor:
         self.dropped_identity_ = self._identity_columns(df)
 
         raw = self._finite(df.drop(columns=[LABEL_COLUMN], errors="ignore"))
-        projected = self._project(raw)
+        projected = self._project(raw, dataset=self.dataset)
         self.requested_features_ = list(projected.columns)
 
         self.missing_features_ = [
@@ -263,16 +272,24 @@ class Preprocessor:
         self.dropped_constant_ = constant
         working = projected.drop(columns=constant, errors="ignore")
 
+        if allowed_features is not None:
+            allowed_set = set(allowed_features)
+            keep_cols = [c for c in working.columns if c in allowed_set]
+            working = working[keep_cols]
+
         self.feature_names_ = working.columns.tolist()
         medians = working.median(numeric_only=True) if self.feature_names_ else pd.Series(dtype=float)
         self.medians_ = medians.reindex(self.feature_names_).fillna(0.0).to_numpy(dtype=np.float64)
 
         values = self._fillna(working)
+        if self.log1p:
+            values = np.sign(values) * np.log1p(np.abs(values))
         self.scaler_ = RobustScaler().fit(values) if self.normalization == "robust" else None
         self._fitted = True
         return self
 
-    def transform(self, df: pd.DataFrame) -> tuple[np.ndarray, Optional[np.ndarray]]:
+    def transform(self, df: pd.DataFrame, dataset: Optional[str] = None,
+                  per_domain_scaler: bool = False) -> tuple[np.ndarray, Optional[np.ndarray]]:
         """Transform data using the fitted preprocessor.
 
         No statistic is recomputed from ``df``: only training-derived decisions are
@@ -283,10 +300,15 @@ class Preprocessor:
 
         labels = self._labels(df)
         raw = self._finite(df.drop(columns=[LABEL_COLUMN], errors="ignore"))
-        projected = self._project(raw)
+        projected = self._project(raw, dataset=dataset)
 
         values = self._fillna(projected)
-        if self.scaler_ is not None:
+        if self.log1p:
+            values = np.sign(values) * np.log1p(np.abs(values))
+
+        if per_domain_scaler:
+            values = RobustScaler().fit_transform(values)
+        elif self.scaler_ is not None:
             values = self.scaler_.transform(values)
 
         return values, labels
@@ -309,7 +331,8 @@ class Preprocessor:
     def split(self, df: pd.DataFrame, test_ratio: float = 0.2,
               val_ratio: float = 0.1, seed: int = 42,
               shuffle: bool = True, strategy: str = "stratified",
-              time_column: Optional[str] = None) -> dict:
+              time_column: Optional[str] = None,
+              allowed_features: Optional[Sequence[str]] = None) -> dict:
         """
         Train/val/test split, fitted on the training rows only.
 
@@ -321,6 +344,7 @@ class Preprocessor:
             shuffle: Whether to shuffle in random split.
             strategy: 'time_aware' (primary in-domain) or 'stratified' / 'random' (comparison).
             time_column: Optional column to sort by for time-aware splitting.
+            allowed_features: Optional subset of features to retain during fit.
 
         Returns:
             dict with keys ``'train'``, ``'val'``, ``'test'``, each holding
@@ -340,7 +364,7 @@ class Preprocessor:
                 val_ratio=val_ratio, seed=seed, time_column=time_column
             )
             train_frame = raw_splits["train"]
-            self.fit(train_frame)
+            self.fit(train_frame, allowed_features=allowed_features)
             return {
                 "train": self._materialise(train_frame),
                 "val": self._materialise(raw_splits["val"]) if len(raw_splits["val"]) > 0 else
@@ -369,7 +393,7 @@ class Preprocessor:
             )
 
         train_frame = frame_rows(df, train_idx)
-        self.fit(train_frame)
+        self.fit(train_frame, allowed_features=allowed_features)
 
         splits = {
             "train": self._materialise(train_frame),
