@@ -127,8 +127,9 @@ identity_columns:
 column_maps:
 
   # CIC-IDS2017 / LYCOS-IDS2017 — already CICFlowMeter-compatible.
+  # Durations and IATs are in microseconds in raw CIC; scale 1e-6 harmonizes to seconds.
   cic-ids-2017:
-    flow_duration: {kind: direct, columns: ["Flow Duration"]}
+    flow_duration: {kind: direct, columns: ["Flow Duration"], scale: 0.000001}
     total_fwd_packets: {kind: direct, columns: ["Total Fwd Packets"]}
     total_bwd_packets: {kind: direct, columns: ["Total Backward Packets"]}
     total_length_of_fwd_packets: {kind: direct, columns: ["Total Length of Fwd Packets"]}
@@ -144,10 +145,10 @@ column_maps:
     bwd_packet_length_std: {kind: direct, columns: ["Bwd Packet Length Std"]}
     packet_length_mean: {kind: direct, columns: ["Packet Length Mean"]}
     packet_length_std: {kind: direct, columns: ["Packet Length Std"]}
-    flow_iat_mean: {kind: direct, columns: ["Flow IAT Mean"]}
-    flow_iat_std: {kind: direct, columns: ["Flow IAT Std"]}
-    fwd_iat_mean: {kind: direct, columns: ["Fwd IAT Mean"]}
-    bwd_iat_mean: {kind: direct, columns: ["Bwd IAT Mean"]}
+    flow_iat_mean: {kind: direct, columns: ["Flow IAT Mean"], scale: 0.000001}
+    flow_iat_std: {kind: direct, columns: ["Flow IAT Std"], scale: 0.000001}
+    fwd_iat_mean: {kind: direct, columns: ["Fwd IAT Mean"], scale: 0.000001}
+    bwd_iat_mean: {kind: direct, columns: ["Bwd IAT Mean"], scale: 0.000001}
     down_up_ratio: {kind: direct, columns: ["Down/Up Ratio"]}
     syn_flag_count: {kind: direct, columns: ["SYN Flag Count"]}
     ack_flag_count: {kind: direct, columns: ["ACK Flag Count"]}
@@ -158,7 +159,7 @@ column_maps:
     flow_packets_per_sec: {kind: direct, columns: ["Flow Packets/s"]}
 
   lycos-ids-2017:
-    flow_duration: {kind: direct, columns: ["Flow Duration"]}
+    flow_duration: {kind: direct, columns: ["Flow Duration"], scale: 0.000001}
     total_fwd_packets: {kind: direct, columns: ["Total Fwd Packets"]}
     total_bwd_packets: {kind: direct, columns: ["Total Backward Packets"]}
     total_length_of_fwd_packets: {kind: direct, columns: ["Total Length of Fwd Packets"]}
@@ -167,10 +168,10 @@ column_maps:
     fwd_packet_length_std: {kind: direct, columns: ["Fwd Packet Length Std"]}
     bwd_packet_length_mean: {kind: direct, columns: ["Bwd Packet Length Mean"]}
     bwd_packet_length_std: {kind: direct, columns: ["Bwd Packet Length Std"]}
-    flow_iat_mean: {kind: direct, columns: ["Flow IAT Mean"]}
-    flow_iat_std: {kind: direct, columns: ["Flow IAT Std"]}
-    fwd_iat_mean: {kind: direct, columns: ["Fwd IAT Mean"]}
-    bwd_iat_mean: {kind: direct, columns: ["Bwd IAT Mean"]}
+    flow_iat_mean: {kind: direct, columns: ["Flow IAT Mean"], scale: 0.000001}
+    flow_iat_std: {kind: direct, columns: ["Flow IAT Std"], scale: 0.000001}
+    fwd_iat_mean: {kind: direct, columns: ["Fwd IAT Mean"], scale: 0.000001}
+    bwd_iat_mean: {kind: direct, columns: ["Bwd IAT Mean"], scale: 0.000001}
     down_up_ratio: {kind: direct, columns: ["Down/Up Ratio"]}
     syn_flag_count: {kind: direct, columns: ["SYN Flag Count"]}
     ack_flag_count: {kind: direct, columns: ["ACK Flag Count"]}
@@ -197,10 +198,10 @@ column_maps:
     flow_bytes_per_sec: {kind: per_second, columns: ["sbytes", "dbytes"], total: true}
     flow_packets_per_sec: {kind: per_second, columns: ["spackets", "dpackets"], total: true}
 
-  # Self-captured lab traffic — produced by src/data/feature_extractor.py, which
-  # already emits the canonical names directly.
-  lab-captured:
-    flow_duration: {kind: direct, columns: ["flow_duration"]}
+  # Lab-simulated traffic — produced by src/data/feature_extractor.py, which
+  # already emits the canonical names directly. Duration and IAT in microseconds.
+  lab-simulated:
+    flow_duration: {kind: direct, columns: ["flow_duration"], scale: 0.000001}
     total_fwd_packets: {kind: direct, columns: ["total_fwd_packets"]}
     total_bwd_packets: {kind: direct, columns: ["total_bwd_packets"]}
     total_length_of_fwd_packets: {kind: direct, columns: ["total_length_of_fwd_packets"]}
@@ -216,10 +217,10 @@ column_maps:
     bwd_packet_length_std: {kind: direct, columns: ["bwd_packet_length_std"]}
     packet_length_mean: {kind: direct, columns: ["packet_length_mean"]}
     packet_length_std: {kind: direct, columns: ["packet_length_std"]}
-    flow_iat_mean: {kind: direct, columns: ["flow_iat_mean"]}
-    flow_iat_std: {kind: direct, columns: ["flow_iat_std"]}
-    fwd_iat_mean: {kind: direct, columns: ["fwd_iat_mean"]}
-    bwd_iat_mean: {kind: direct, columns: ["bwd_iat_mean"]}
+    flow_iat_mean: {kind: direct, columns: ["flow_iat_mean"], scale: 0.000001}
+    flow_iat_std: {kind: direct, columns: ["flow_iat_std"], scale: 0.000001}
+    fwd_iat_mean: {kind: direct, columns: ["fwd_iat_mean"], scale: 0.000001}
+    bwd_iat_mean: {kind: direct, columns: ["bwd_iat_mean"], scale: 0.000001}
     down_up_ratio: {kind: ratio, columns: ["total_length_of_bwd_packets", "total_length_of_fwd_packets"]}
     syn_flag_count: {kind: direct, columns: ["syn_flag_count"]}
     ack_flag_count: {kind: direct, columns: ["ack_flag_count"]}
@@ -228,6 +229,70 @@ column_maps:
     psh_flag_count: {kind: direct, columns: ["psh_flag_count"]}
     flow_bytes_per_sec: {kind: per_second, columns: ["total_length_of_fwd_packets", "total_length_of_bwd_packets"], total: true}
     flow_packets_per_sec: {kind: per_second, columns: ["total_fwd_packets", "total_bwd_packets"], total: true}
+
+  lab-captured:
+    flow_duration: {kind: direct, columns: ["flow_duration"], scale: 0.000001}
+    total_fwd_packets: {kind: direct, columns: ["total_fwd_packets"]}
+    total_bwd_packets: {kind: direct, columns: ["total_bwd_packets"]}
+    total_length_of_fwd_packets: {kind: direct, columns: ["total_length_of_fwd_packets"]}
+    total_length_of_bwd_packets: {kind: direct, columns: ["total_length_of_bwd_packets"]}
+    total_length_of_packets: {kind: ratio, columns: ["total_length_of_fwd_packets", "total_length_of_bwd_packets"]}
+    fwd_packet_length_mean: {kind: direct, columns: ["fwd_packet_length_mean"]}
+    fwd_packet_length_max: {kind: direct, columns: ["fwd_packet_length_max"]}
+    fwd_packet_length_min: {kind: direct, columns: ["fwd_packet_length_min"]}
+    fwd_packet_length_std: {kind: direct, columns: ["fwd_packet_length_std"]}
+    bwd_packet_length_mean: {kind: direct, columns: ["bwd_packet_length_mean"]}
+    bwd_packet_length_max: {kind: direct, columns: ["bwd_packet_length_max"]}
+    bwd_packet_length_min: {kind: direct, columns: ["bwd_packet_length_min"]}
+    bwd_packet_length_std: {kind: direct, columns: ["bwd_packet_length_std"]}
+    packet_length_mean: {kind: direct, columns: ["packet_length_mean"]}
+    packet_length_std: {kind: direct, columns: ["packet_length_std"]}
+    flow_iat_mean: {kind: direct, columns: ["flow_iat_mean"], scale: 0.000001}
+    flow_iat_std: {kind: direct, columns: ["flow_iat_std"], scale: 0.000001}
+    fwd_iat_mean: {kind: direct, columns: ["fwd_iat_mean"], scale: 0.000001}
+    bwd_iat_mean: {kind: direct, columns: ["bwd_iat_mean"], scale: 0.000001}
+    down_up_ratio: {kind: ratio, columns: ["total_length_of_bwd_packets", "total_length_of_fwd_packets"]}
+    syn_flag_count: {kind: direct, columns: ["syn_flag_count"]}
+    ack_flag_count: {kind: direct, columns: ["ack_flag_count"]}
+    rst_flag_count: {kind: direct, columns: ["rst_flag_count"]}
+    fin_flag_count: {kind: direct, columns: ["fin_flag_count"]}
+    psh_flag_count: {kind: direct, columns: ["psh_flag_count"]}
+    flow_bytes_per_sec: {kind: per_second, columns: ["total_length_of_fwd_packets", "total_length_of_bwd_packets"], total: true}
+    flow_packets_per_sec: {kind: per_second, columns: ["total_fwd_packets", "total_bwd_packets"], total: true}
+
+  # NetFlow-v2 datasets sharing the 43 NetFlow feature schema
+  nf-unsw-nb15-v2:
+    flow_duration: {kind: direct, columns: ["FLOW_DURATION_MILLISECONDS"], scale: 0.001}
+    total_fwd_packets: {kind: direct, columns: ["IN_PKTS"]}
+    total_bwd_packets: {kind: direct, columns: ["OUT_PKTS"]}
+    total_length_of_fwd_packets: {kind: direct, columns: ["IN_BYTES"]}
+    total_length_of_bwd_packets: {kind: direct, columns: ["OUT_BYTES"]}
+    fwd_packet_length_min: {kind: direct, columns: ["MIN_IP_PKT_LEN"]}
+    fwd_packet_length_max: {kind: direct, columns: ["MAX_IP_PKT_LEN"]}
+    down_up_ratio: {kind: ratio, columns: ["OUT_BYTES", "IN_BYTES"]}
+    flow_bytes_per_sec: {kind: direct, columns: ["SRC_TO_DST_AVG_THROUGHPUT"]}
+
+  nf-cse-cic-ids2018-v2:
+    flow_duration: {kind: direct, columns: ["FLOW_DURATION_MILLISECONDS"], scale: 0.001}
+    total_fwd_packets: {kind: direct, columns: ["IN_PKTS"]}
+    total_bwd_packets: {kind: direct, columns: ["OUT_PKTS"]}
+    total_length_of_fwd_packets: {kind: direct, columns: ["IN_BYTES"]}
+    total_length_of_bwd_packets: {kind: direct, columns: ["OUT_BYTES"]}
+    fwd_packet_length_min: {kind: direct, columns: ["MIN_IP_PKT_LEN"]}
+    fwd_packet_length_max: {kind: direct, columns: ["MAX_IP_PKT_LEN"]}
+    down_up_ratio: {kind: ratio, columns: ["OUT_BYTES", "IN_BYTES"]}
+    flow_bytes_per_sec: {kind: direct, columns: ["SRC_TO_DST_AVG_THROUGHPUT"]}
+
+  nf-ton-iot-v2:
+    flow_duration: {kind: direct, columns: ["FLOW_DURATION_MILLISECONDS"], scale: 0.001}
+    total_fwd_packets: {kind: direct, columns: ["IN_PKTS"]}
+    total_bwd_packets: {kind: direct, columns: ["OUT_PKTS"]}
+    total_length_of_fwd_packets: {kind: direct, columns: ["IN_BYTES"]}
+    total_length_of_bwd_packets: {kind: direct, columns: ["OUT_BYTES"]}
+    fwd_packet_length_min: {kind: direct, columns: ["MIN_IP_PKT_LEN"]}
+    fwd_packet_length_max: {kind: direct, columns: ["MAX_IP_PKT_LEN"]}
+    down_up_ratio: {kind: ratio, columns: ["OUT_BYTES", "IN_BYTES"]}
+    flow_bytes_per_sec: {kind: direct, columns: ["SRC_TO_DST_AVG_THROUGHPUT"]}
 
   ctu-13:
     flow_duration: {kind: direct, columns: ["duration"]}
