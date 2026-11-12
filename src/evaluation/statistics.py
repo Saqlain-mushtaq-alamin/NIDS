@@ -416,6 +416,9 @@ def compare_in_domain_vs_cross_domain(results: pd.DataFrame,
                     "can reject at alpha=0.05"
                 )
 
+            std_delta = float(np.std(deltas, ddof=1)) if deltas.size > 1 else 0.0
+            cohen_d = float(np.mean(deltas) / std_delta) if std_delta > 0 else (float("inf") if np.mean(deltas) > 0 else 0.0)
+
             records.append({
                 "train_dataset": train_name,
                 "test_dataset": test_name,
@@ -423,9 +426,10 @@ def compare_in_domain_vs_cross_domain(results: pd.DataFrame,
                 "in_domain_mean": float(np.mean(in_scores)),
                 "cross_domain_mean": float(np.mean(cross_scores)),
                 "delta_mean": float(np.mean(deltas)),
-                "delta_std": float(np.std(deltas, ddof=1)) if deltas.size > 1 else 0.0,
+                "delta_std": std_delta,
                 "delta_ci_low": ci_low,
                 "delta_ci_high": ci_high,
+                "cohen_d": cohen_d,
                 "retention": (
                     float(np.mean(cross_scores) / np.mean(in_scores))
                     if np.mean(in_scores) > 0 else float("nan")
