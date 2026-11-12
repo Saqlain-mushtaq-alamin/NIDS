@@ -12,7 +12,7 @@ data:
   train_datasets:
     - "cic-ids-2017"
     - "unsw-nb15"
-    - "lab-captured"
+    - "lab-simulated"
   eval_matrix: true
 
 features:
