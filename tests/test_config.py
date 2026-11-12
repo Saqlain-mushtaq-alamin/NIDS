@@ -48,4 +48,12 @@ def test_logger_initialization(tmp_path):
     logger.info("Test log message")
     
     assert log_file.is_file()
+
+def test_load_config_relative_resolution():
+    """Verify load_config resolves relative to project root dynamically."""
+    import src.utils.config as cfg_mod
+    assert hasattr(cfg_mod, "_PROJECT_ROOT")
+    assert (cfg_mod._PROJECT_ROOT / "configs" / "default.yaml").is_file()
+    cfg = cfg_mod.load_config("configs/default.yaml")
+    assert cfg is not None
     assert "Test log message" in log_file.read_text()
