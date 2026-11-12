@@ -88,18 +88,18 @@ flowchart TD
 - **Feature Set Decomposition:**
   - *Full Feature Set:* Flow statistics + transport identifiers.
   - *Behavior-Only Feature Set:* Purely behavioral flow metrics (inter-arrival times, packet length distributions, TCP flag dynamics) with IP and port identifiers systematically purged.
-- **Cross-Domain Evaluation Matrix:** Evaluates 9 cross-domain combinations across benchmark datasets (CIC-IDS2017, UNSW-NB15, and lab-captured traffic) to measure the empirical generalization drop ($\Delta F_1$).
+- **Cross-Domain Evaluation Matrix:** Evaluates cross-domain combinations across benchmark datasets (CIC-IDS2017, UNSW-NB15, and lab-simulated traffic) to measure the empirical generalization drop ($\Delta F_1$).
 - **Statistical Engine:** Dependency-free, numerically validated statistical tests in [`src/evaluation/statistics.py`](src/evaluation/statistics.py) cross-checked against SciPy.
 
 ### Phase 3: Detection Depth & Temporal-Graph Monitoring
 - **Deep Anomaly Autoencoder:** Symmetric bottleneck MLP (`src/models/autoencoder.py`) with reconstruction error thresholding for zero-day / out-of-distribution flow detection.
 - **Host Interaction Graph Neural Network (GNN):** PyTorch Geometric model (`src/models/gnn_detector.py`) modeling inter-host communication graphs to identify structural scanning, lateral movement, and botnet fan-out patterns.
 - **Real-Time Concept Drift Detection:** Dual-layer statistical monitoring (`src/drift/drift_detector.py`) combining **ADWIN** (Adaptive Windowing) for online streaming drift with **PSI** (Population Stability Index) for feature distribution divergence.
-- **Tri-Modal Fusion:** Weighted consensus combining supervised probability, reconstruction residual, and graph embedding anomaly scores.
+- **Dual-View Fusion (AE + GNN):** Weighted consensus combining per-flow reconstruction residual and host graph embedding anomaly scores.
 
 ### Phase 4: Explainability, Tiered XAI & SOC Response
 - **Attribution Algorithms:** Support for `TreeSHAP`, `KernelSHAP`, and Captum-based `DeepLIFT`.
-- **Faithfulness Benchmarking:** Implementation of **Deletion AUC** (gradually masking top features and measuring confidence collapse) and **Insertion AUC** to empirically prove explanation accuracy.
+- **Faithfulness Benchmarking:** Implementation of **Deletion AUC** (gradually masking top features and measuring confidence collapse) to empirically evaluate explanation faithfulness.
 - **Two-Tiered Alert Generation:**
   - **Tier-1 (L1 Analysts):** Human-readable threat narratives (e.g., *"Anomalous TCP SYN burst detected from internal host 10.0.0.5"*).
   - **Tier-2 (Forensics / L3):** Structured JSON metadata detailing mathematical feature contributions, exact packet counters, and mitigation rationale.
