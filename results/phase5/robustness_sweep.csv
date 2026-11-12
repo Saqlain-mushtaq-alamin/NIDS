@@ -1,0 +1,31 @@
+Model,Attack,ε,Clean ACC,Adv ACC,Δ ACC,Clean FPR,Adv FPR,Δ FPR
+XGBoost (no defense),FGSM,0.01,0.875,0.875,0.0,1.0,1.0,0.0
+XGBoost (no defense),FGSM,0.05,0.875,0.875,0.0,1.0,1.0,0.0
+XGBoost (no defense),FGSM,0.1,0.875,0.875,0.0,1.0,1.0,0.0
+XGBoost (no defense),FGSM,0.2,0.875,0.875,0.0,1.0,1.0,0.0
+XGBoost (no defense),FGSM,0.5,0.875,0.875,0.0,1.0,1.0,0.0
+XGBoost (no defense),PGD-10,0.01,0.875,0.875,0.0,1.0,1.0,0.0
+XGBoost (no defense),PGD-10,0.05,0.875,0.875,0.0,1.0,1.0,0.0
+XGBoost (no defense),PGD-10,0.1,0.875,0.875,0.0,1.0,1.0,0.0
+XGBoost (no defense),PGD-10,0.2,0.875,0.875,0.0,1.0,1.0,0.0
+XGBoost (no defense),PGD-10,0.5,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (no defense),FGSM,0.01,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (no defense),FGSM,0.05,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (no defense),FGSM,0.1,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (no defense),FGSM,0.2,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (no defense),FGSM,0.5,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (no defense),PGD-10,0.01,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (no defense),PGD-10,0.05,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (no defense),PGD-10,0.1,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (no defense),PGD-10,0.2,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (no defense),PGD-10,0.5,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (adv-trained),FGSM,0.01,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (adv-trained),FGSM,0.05,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (adv-trained),FGSM,0.1,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (adv-trained),FGSM,0.2,0.875,1.0,0.125,1.0,0.0,-1.0
+DNN (adv-trained),FGSM,0.5,0.875,0.125,-0.75,1.0,0.0,-1.0
+DNN (adv-trained),PGD-10,0.01,0.875,0.875,0.0,1.0,1.0,0.0
+DNN (adv-trained),PGD-10,0.05,0.875,0.0,-0.875,1.0,1.0,0.0
+DNN (adv-trained),PGD-10,0.1,0.875,0.0,-0.875,1.0,1.0,0.0
+DNN (adv-trained),PGD-10,0.2,0.875,0.0,-0.875,1.0,1.0,0.0
+DNN (adv-trained),PGD-10,0.5,0.875,0.0,-0.875,1.0,1.0,0.0

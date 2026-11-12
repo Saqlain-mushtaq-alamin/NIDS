@@ -1,0 +1,75 @@
+{
+  "xgboost": {
+    "accuracy": 0.475,
+    "precision": 0.10857142857142857,
+    "recall": 0.16521739130434782,
+    "f1": 0.13103448275862067,
+    "macro_f1": 0.13103448275862067,
+    "weighted_f1": 0.3767241379310345,
+    "mcc": -0.1092038933596789,
+    "macro_auc": 0.4830541346973572
+  },
+  "random_forest": {
+    "accuracy": 0.575,
+    "precision": 0.11499999999999999,
+    "recall": 0.2,
+    "f1": 0.146031746031746,
+    "macro_f1": 0.146031746031746,
+    "weighted_f1": 0.41984126984126985,
+    "mcc": 0.0,
+    "macro_auc": 0.41250570373076767
+  },
+  "latency_xgb": {
+    "batch_1": {
+      "latency_sec": 0.0004419800010509789,
+      "throughput_flows_sec": 2262.545811172705,
+      "per_flow_usec": 441.9800010509789
+    },
+    "batch_32": {
+      "latency_sec": 0.0006057400023564696,
+      "throughput_flows_sec": 52827.945777912224,
+      "per_flow_usec": 18.929375073639676
+    },
+    "batch_40": {
+      "latency_sec": 0.0006586600095033646,
+      "throughput_flows_sec": 60729.358732679626,
+      "per_flow_usec": 16.466500237584114
+    },
+    "full_test": {
+      "total_sec": 0.0006511000683531165,
+      "throughput_flows_sec": 61434.489019753055,
+      "per_flow_usec": 16.277501708827913
+    }
+  },
+  "latency_rf": {
+    "batch_1": {
+      "latency_sec": 0.018964229989796876,
+      "throughput_flows_sec": 52.730851742360194,
+      "per_flow_usec": 18964.229989796877
+    },
+    "batch_32": {
+      "latency_sec": 0.018920230004005133,
+      "throughput_flows_sec": 1691.3113631930516,
+      "per_flow_usec": 591.2571876251604
+    },
+    "batch_40": {
+      "latency_sec": 0.01885454000439495,
+      "throughput_flows_sec": 2121.5049526891717,
+      "per_flow_usec": 471.3635001098737
+    },
+    "full_test": {
+      "total_sec": 0.018996299942955375,
+      "throughput_flows_sec": 2105.6732163693637,
+      "per_flow_usec": 474.90749857388437
+    }
+  },
+  "label_audit": {
+    "noise_rate": 0.425,
+    "num_issues": 85
+  },
+  "g1_gate": {
+    "accuracy_pass": false,
+    "f1_pass": false,
+    "overall_pass": false
+  }
+}

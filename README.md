@@ -272,7 +272,7 @@ python scripts/run_phase5.py
 
 ## Interactive Streamlit SOC Dashboard
 
-The repository includes a production-grade, interactive SOC Security Dashboard built with Streamlit. It connects directly to live detection feeds, providing real-time alerts, SHAP waterfall explanations, network graph topology views, and firewall mitigation auditing.
+The repository includes an interactive SOC Security Dashboard built with Streamlit. It visualizes detection reports and explanations, providing alert triage, SHAP and DeepLIFT feature attributions, drift monitoring, and simulated firewall mitigation auditing.
 
 ```bash
 # Launch the dashboard
@@ -282,12 +282,12 @@ streamlit run src/dashboard/app.py
 Once running, navigate to `http://localhost:8501` in your browser.
 
 ### Dashboard Panels:
-1. **Executive Overview:** High-level metrics showing total flows, active threat rate, fusion alert severity breakdown, and system health status.
-2. **Real-Time Alert Feed:** Filterable tabular log of incoming network flows with color-coded severity badges (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
-3. **Deep Explainability (XAI):** Interactive SHAP waterfall charts revealing exact feature attributions driving anomaly confidence.
-4. **Network Graph Topology:** Visual representation of host communication graphs highlighting high-degree scanning nodes and compromised communication links.
-5. **Drift & Concept Shift Monitor:** Live ADWIN change-point tracking and Population Stability Index (PSI) graphs indicating distribution shift.
-6. **Automated Response Logs:** Audit trail of automated actions taken (`LOG_ONLY`, `RATE_LIMIT`, `BLOCK`) with operator manual override options.
+1. **Alert Feed:** Scrolling log of explained alerts with color-coded severity badges (`HIGH`, `MEDIUM`, `LOW`) and headline counts.
+2. **Confidence Distribution:** Distribution of prediction confidence overall and per class.
+3. **Explanations:** Tier-1 SOC triage plain-language summary for selected alerts and Tier-2 drill-down (SHAP vs DeepLIFT attribution charts).
+4. **Response Actions:** Policy-driven actions taken (`LOG_ONLY`, `RATE_LIMIT`, `BLOCK`) with per-IP rollback controls.
+5. **Drift Monitoring:** Concept-drift monitor status from Phase 3 detectors (ADWIN and PSI).
+6. **Traffic Timeline:** Binned traffic flow volume timeline split between benign and attack traffic.
 
 ---
 

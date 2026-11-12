@@ -1,0 +1,6 @@
+,Benign,BruteForce,DDoS,DoS,PortScan
+Benign,19,0,1,1,2
+BruteForce,4,0,0,0,0
+DDoS,4,0,0,1,0
+DoS,4,0,0,0,0
+PortScan,4,0,0,0,0

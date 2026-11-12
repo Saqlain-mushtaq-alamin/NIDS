@@ -1,0 +1,75 @@
+{
+  "seed": 2024,
+  "n_windows": 160,
+  "n_flows": 13798,
+  "n_train_windows": 120,
+  "n_test_windows": 40,
+  "window_id_overlap": 0,
+  "window_label_counts": {
+    "Infiltration": 80,
+    "Benign": 40,
+    "PortScan": 40
+  },
+  "gnn_metrics": {
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "macro_f1": 1.0,
+    "weighted_f1": 1.0,
+    "mcc": 1.0
+  },
+  "gnn_per_class": [
+    {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 30.0
+    },
+    {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 1.0
+    },
+    {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 40.0
+    },
+    {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 40.0
+    }
+  ],
+  "baseline": {
+    "name": "degree_logistic_regression",
+    "accuracy": 1.0,
+    "n_features": 22
+  },
+  "latency": {
+    "n_iterations": 200,
+    "batch_size": 1,
+    "n_nodes": 50,
+    "n_edges": 200,
+    "device": "cuda",
+    "mean_ms": 1.2742989999924248,
+    "median_ms": 1.1540999998942425,
+    "p95_ms": 1.7827549999537946,
+    "min_ms": 1.0820000002240704,
+    "max_ms": 2.13339999982054,
+    "budget_ms": 35.0,
+    "within_budget": true,
+    "headroom_ms": 33.725701000007575
+  },
+  "notes": []
+}

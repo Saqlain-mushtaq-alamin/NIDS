@@ -1,0 +1,5 @@
+feature,kind,timestamp,window,reference_mean,current_mean,psi,magnitude,z_score,direction,severity,message
+f2,psi_shift,,,,,12.433855885838662,,,,high,PSI(f2) = 12.434 >= 0.25 (significant shift)
+f3,psi_shift,,,,,11.275246270904413,,,,high,PSI(f3) = 11.275 >= 0.25 (significant shift)
+confidence,prediction_drift,,560.0,,0.10091890780150173,,,,increase,medium,"Detection confidence drifted increase (current mean 0.1009, ADWIN estimation 0.1006); investigate retraining need"
+detection_rate,detection_rate_drift,,560.0,,1.0,,,,decrease,medium,"Detection rate drifted decrease (current mean 1, ADWIN estimation 1); investigate retraining need"

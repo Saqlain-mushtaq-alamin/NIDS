@@ -1,0 +1,11 @@
+feature,mean_error
+flow_packets_per_sec,2578.4905837216406
+bwd_iat_mean,1507.8136485322007
+flow_bytes_per_sec,1295.6284628243714
+fwd_iat_mean,653.3029347167698
+flow_iat_std,339.11328242947826
+flow_iat_mean,217.1235910183333
+flow_duration,49.576790086475675
+down_up_ratio,15.957398934709529
+total_length_of_bwd_packets,5.599575062920602
+bwd_packet_length_std,3.513522103017817

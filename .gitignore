@@ -37,5 +37,4 @@ htmlcov/
 *.log
 mlruns/
 
-planning 
-results 
+planning
