@@ -1,4 +1,4 @@
-﻿"""
+"""
 tests/test_cross_dataset.py - Phase 2 cross-dataset evaluation tests (FR5).
 
 These tests use tiny synthetic frames with *deliberately different* feature
