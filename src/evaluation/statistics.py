@@ -209,7 +209,7 @@ def wilcoxon(before: Sequence[float], after: Sequence[float],
     Implemented directly (rather than via ``scipy.stats.wilcoxon``) so the
     project keeps a single, documented implementation of the exact rank
     enumeration for small samples, and degrades to the normal approximation
-    for n > 25.
+    for n > 20.
     """
     a, b = _aligned(before, after, "wilcoxon")
     differences = a - b

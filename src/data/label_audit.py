@@ -4,10 +4,16 @@ Uses cleanlab for confident learning when available, falls back to heuristic met
 """
 import numpy as np
 import pandas as pd
+import logging
 from pathlib import Path
 from typing import Optional
+import numpy as np
+import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import cross_val_predict
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
+from sklearn.preprocessing import LabelEncoder
+
+logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
