@@ -35,8 +35,11 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.evaluation.cross_dataset import CrossDatasetEvaluator, RESULT_COLUMNS
+from sklearn.linear_model import LogisticRegression
+
+from src.evaluation.cross_dataset import CrossDatasetEvaluator, RESULT_COLUMNS, run_ablation_grid
 from src.evaluation.statistics import analyze
+from src.models.baseline_dnn import DNNBaseline
 from src.models.baseline_rf import RFBaseline
 from src.models.baseline_xgb import XGBBaseline
 from src.utils.config import load_config
@@ -45,9 +48,9 @@ from src.utils.pandas_compat import apply_pandas_compat
 
 apply_pandas_compat()
 
-RESULTS_DIR = _PROJECT_ROOT / "results"
+RESULTS_DIR = _PROJECT_ROOT / "results" / "phase2"
 
-DEFAULT_DATASETS = ["cic-ids-2017", "unsw-nb15", "lab-captured"]
+DEFAULT_DATASETS = ["cic-ids-2017", "unsw-nb15", "lab-simulated"]
 DEFAULT_MODES = ["full", "behavior_only"]
 try:
     DEFAULT_SEEDS = list(load_config("configs/cross_dataset.yaml").reproducibility.seeds)
@@ -61,6 +64,12 @@ MODEL_FACTORIES = {
     ),
     "rf": lambda seed: RFBaseline(
         n_estimators=200, max_depth=12, random_state=seed, n_jobs=4,
+    ),
+    "dnn": lambda seed: DNNBaseline(
+        epochs=15, batch_size=128, random_state=seed,
+    ),
+    "lr": lambda seed: LogisticRegression(
+        max_iter=1000, random_state=seed, class_weight="balanced",
     ),
 }
 
@@ -86,6 +95,12 @@ def parse_args(argv=None) -> argparse.Namespace:
                         help="Pass class_weight='balanced' to the estimators.")
     parser.add_argument("--no-normalization", action="store_true",
                         help="Disable the robust scaler.")
+    parser.add_argument("--log1p", action="store_true",
+                        help="Apply sign(x)*log1p(|x|) transformation before scaling.")
+    parser.add_argument("--per-domain-scaler", action="store_true",
+                        help="Fit scaler per target domain on unlabeled target features.")
+    parser.add_argument("--ablation", action="store_true",
+                        help="Run the complete Phase 2 ablation grid.")
     parser.add_argument("--output-dir", type=Path, default=RESULTS_DIR)
     parser.add_argument("--quick", action="store_true",
                         help="One seed, full mode only, XGB (smoke test).")
@@ -104,6 +119,9 @@ def _make_evaluator(args, model_key: str, mode: str, seed: int) -> CrossDatasetE
         val_ratio=args.val_ratio,
         model_name=model_key,
         class_weight="balanced" if args.balanced else None,
+        log1p=getattr(args, "log1p", False),
+        per_domain_scaler=getattr(args, "per_domain_scaler", False),
+        min_test_rows=0 if args.quick else 500,
     )
 
 
@@ -256,14 +274,54 @@ def main(argv=None) -> int:
     logger.info("datasets=%s modes=%s models=%s seeds=%s",
                 args.datasets, args.modes, args.models, args.seeds)
 
+    out = Path(args.output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    if args.ablation:
+        logger.info("Running Phase 2 ablation grid...")
+        ablation_df = run_ablation_grid(
+            datasets=args.datasets,
+            seeds=args.seeds,
+            output_dir=out,
+            min_test_rows=0 if args.quick else 500,
+            logger=logger,
+        )
+        logger.info("Ablation grid completed with %d rows", len(ablation_df))
+
     summaries = []
+    all_results = []
+    all_comparisons = []
     for model_key in args.models:
         for mode in args.modes:
-            summaries.append(run_configuration(args, model_key, mode, logger))
+            summary = run_configuration(args, model_key, mode, logger)
+            summaries.append(summary)
+            stem = f"cross_dataset_{mode}_{model_key}"
+            if (out / f"{stem}.csv").exists():
+                all_results.append(pd.read_csv(out / f"{stem}.csv"))
+            if (out / f"{stem}_stats.csv").exists():
+                all_comparisons.append(pd.read_csv(out / f"{stem}_stats.csv"))
+
+    if all_results:
+        combined_matrix = pd.concat(all_results, ignore_index=True)
+        combined_matrix.to_csv(out / "cross_dataset_matrix.csv", index=False)
+    if all_comparisons:
+        combined_stats = pd.concat(all_comparisons, ignore_index=True)
+        combined_stats.to_csv(out / "cross_dataset_stats.csv", index=False)
+
+    # Copy primary report and summary to standard names
+    first_stem = f"cross_dataset_{args.modes[0]}_{args.models[0]}"
+    if (out / f"{first_stem}_report.md").exists():
+        (out / "cross_dataset_report.md").write_text(
+            (out / f"{first_stem}_report.md").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+    if (out / f"{first_stem}_summary.json").exists():
+        (out / "cross_dataset_summary.json").write_text(
+            (out / f"{first_stem}_summary.json").read_text(encoding="utf-8"), encoding="utf-8"
+        )
 
     compare_modes(summaries, logger)
     logger.info("done — %d configuration(s), artifacts in %s",
-                len(summaries), Path(args.output_dir))
+                len(summaries), out)
     return 0
 
 

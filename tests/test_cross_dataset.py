@@ -94,10 +94,10 @@ def make_frame(n=200, seed=0, offset=0.0, scale=1.0, labels=("A", "B"),
 
 @pytest.fixture
 def two_domains():
-    """Two datasets: same labels, different feature spaces and offsets."""
+    """Two datasets: same labels, partially overlapping feature spaces and offsets."""
     return {
         "alpha": make_frame(n=300, seed=1, offset=0.0, feature_names=("f1", "f2")),
-        "beta": make_frame(n=300, seed=2, offset=5.0, feature_names=("g1", "g2", "g3")),
+        "beta": make_frame(n=300, seed=2, offset=5.0, feature_names=("f1", "f2", "g1")),
     }
 
 
@@ -251,7 +251,7 @@ class TestNoLeakage:
         assert len(built[0].transformed) == 4
         assert len(built[1].transformed) == 4
         # The last frame each instance saw is the evaluation dataset itself.
-        assert set(built[0].transformed[-1].columns) == {"g1", "g2", "g3", "label"}
+        assert set(built[0].transformed[-1].columns) == {"f1", "f2", "g1", "label"}
         assert set(built[1].transformed[-1].columns) == {"f1", "f2", "label"}
 
     def test_preprocessor_transform_before_fit_raises(self):

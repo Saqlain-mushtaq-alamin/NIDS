@@ -196,15 +196,21 @@ class Preprocessor:
         Map ``df`` onto the model input space.
 
         ``full`` mode keeps the frame's own numeric columns (identity columns
-        removed).  Behaviour modes project onto the canonical schema.
+        removed), or all mapped features if the dataset has a declared column map.
+        Behaviour modes project onto the canonical schema.
         """
+        target_ds = dataset if dataset is not None else self.dataset
+
         if self.feature_mode == "full":
+            from src.data.feature_extractor import load_feature_schema, align_to_canonical
+            col_maps = load_feature_schema().get("column_maps", {})
+            if target_ds is not None and target_ds in col_maps:
+                return align_to_canonical(df, target_ds)
             numeric = self._numeric_columns(df)
             keep = [c for c in numeric if c not in set(self.dropped_identity_)]
             return df[keep].copy()
 
         wanted = self._behavior_schema()
-        target_ds = dataset if dataset is not None else self.dataset
 
         if target_ds is not None:
             from src.data.feature_extractor import align_to_canonical
