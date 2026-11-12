@@ -38,9 +38,9 @@ class RecordingPreprocessor(Preprocessor):
         super().__init__(**kwargs)
         self.transformed: list[pd.DataFrame] = []
 
-    def transform(self, df):
+    def transform(self, df, *args, **kwargs):
         self.transformed.append(df.copy())
-        return super().transform(df)
+        return super().transform(df, *args, **kwargs)
 
 
 class ConstantModel:
