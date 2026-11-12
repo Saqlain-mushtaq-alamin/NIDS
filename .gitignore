@@ -36,5 +36,3 @@ htmlcov/
 # Logs & Temporal
 *.log
 mlruns/
-
-planning
