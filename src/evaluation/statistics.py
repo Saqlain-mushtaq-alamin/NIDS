@@ -447,6 +447,77 @@ def compare_in_domain_vs_cross_domain(results: pd.DataFrame,
     return pd.DataFrame(records)
 
 
+def dataset_level_test(results: pd.DataFrame, value_column: str = "macro_f1",
+                       seed_column: str = "seed", n_permutations: int = 10_000,
+                       seed: int = 42) -> dict:
+    """
+    Dataset-level permutation and bootstrap test.
+
+    Rather than treating the directed pairs as independent observations (which violates
+    exchangeability due to shared dataset marginals), this test evaluates the in-domain
+    vs cross-domain gap aggregated by dataset.
+    """
+    if "train_dataset" not in results.columns or "test_dataset" not in results.columns:
+        raise KeyError("train_dataset and test_dataset required in results")
+
+    datasets = sorted(results["train_dataset"].unique().tolist())
+    n_datasets = len(datasets)
+
+    dataset_deltas = []
+    for d in datasets:
+        in_mask = (results["train_dataset"] == d) & (results["test_dataset"] == d)
+        cross_mask = (results["train_dataset"] == d) & (results["test_dataset"] != d)
+        if in_mask.any() and cross_mask.any():
+            in_val = float(results.loc[in_mask, value_column].mean())
+            cross_val = float(results.loc[cross_mask, value_column].mean())
+            dataset_deltas.append(in_val - cross_val)
+
+    limitation_msg = (
+        f"Inference is limited to the evaluated datasets (N={n_datasets} datasets, "
+        f"{n_datasets * (n_datasets - 1)} directed pairs); pair observations share dataset "
+        "marginals and are not independent."
+    )
+
+    if not dataset_deltas:
+        return {
+            "mean_delta": float("nan"),
+            "ci_low": float("nan"),
+            "ci_high": float("nan"),
+            "p_value": float("nan"),
+            "n_datasets": n_datasets,
+            "inference_limitation": limitation_msg,
+        }
+
+    arr = np.array(dataset_deltas, dtype=np.float64)
+    mean_delta = float(np.mean(arr))
+
+    rng = np.random.default_rng(seed)
+    # Bootstrap CI over datasets
+    boot_means = np.empty(n_permutations, dtype=np.float64)
+    for i in range(n_permutations):
+        resampled = rng.choice(arr, size=len(arr), replace=True)
+        boot_means[i] = np.mean(resampled)
+    ci_low = float(np.percentile(boot_means, 2.5))
+    ci_high = float(np.percentile(boot_means, 97.5))
+
+    # Permutation test under H0: delta sign is exchangeable
+    perm_means = np.empty(n_permutations, dtype=np.float64)
+    for i in range(n_permutations):
+        signs = rng.choice([-1.0, 1.0], size=len(arr))
+        perm_means[i] = np.mean(arr * signs)
+    p_value = float(np.mean(perm_means >= mean_delta))
+
+    return {
+        "mean_delta": mean_delta,
+        "ci_low": ci_low,
+        "ci_high": ci_high,
+        "p_value": p_value,
+        "n_datasets": n_datasets,
+        "dataset_deltas": {str(d): float(delta) for d, delta in zip(datasets, dataset_deltas)},
+        "inference_limitation": limitation_msg,
+    }
+
+
 def analyze(results: pd.DataFrame, value_column: str = "macro_f1",
             seed_column: str = "seed") -> dict:
     """
@@ -454,20 +525,15 @@ def analyze(results: pd.DataFrame, value_column: str = "macro_f1",
 
     Returns:
         Dict with ``aggregate``, ``comparisons``, ``overall_ttest``,
-        ``overall_wilcoxon``, ``overall_delta_ci``, ``n_seeds``,
-        ``cross_worse_pairs`` and ``significant_pairs``.
+        ``overall_wilcoxon``, ``overall_delta_ci``, ``dataset_level_test``,
+        ``n_seeds``, ``cross_worse_pairs`` and ``significant_pairs``.
     """
     aggregate = aggregate_over_seeds(results, value_column, seed_column)
     comparisons = compare_in_domain_vs_cross_domain(results, value_column, seed_column)
+    ds_test = dataset_level_test(results, value_column, seed_column)
 
     diagonal = aggregate[aggregate["in_domain"]]
     off_diagonal = aggregate[~aggregate["in_domain"]]
-    in_mean = float(diagonal["value_mean"].mean()) if len(diagonal) else float("nan")
-    cross_mean = float(off_diagonal["value_mean"].mean()) if len(off_diagonal) else float("nan")
-
-    overall_t = None
-    overall_w = None
-    overall_ci = (float("nan"), float("nan"))
     in_mean = float("nan")
     cross_mean = float("nan")
     mean_delta = float("nan")
@@ -475,9 +541,9 @@ def analyze(results: pd.DataFrame, value_column: str = "macro_f1",
         in_mean = float(diagonal["value_mean"].mean())
         cross_mean = float(off_diagonal["value_mean"].mean())
 
-    # The unit of analysis is the *ordered pair*: each cross-domain cell is
-    # matched with the diagonal cell of its own training dataset, so the paired
-    # sample is one delta per ordered pair (never the ragged cell sets).
+    overall_t = None
+    overall_w = None
+    overall_ci = (float("nan"), float("nan"))
     if len(comparisons):
         deltas = comparisons["delta_mean"].to_numpy(dtype=np.float64)
         in_scores = comparisons["in_domain_mean"].to_numpy(dtype=np.float64)
@@ -493,6 +559,8 @@ def analyze(results: pd.DataFrame, value_column: str = "macro_f1",
         "overall_ttest": overall_t,
         "overall_wilcoxon": overall_w,
         "overall_delta_ci": overall_ci,
+        "dataset_level_test": ds_test,
+        "inference_limitation": ds_test["inference_limitation"],
         "in_domain_mean": in_mean,
         "cross_domain_mean": cross_mean,
         "mean_delta": mean_delta,
