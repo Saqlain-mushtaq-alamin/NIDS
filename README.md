@@ -56,13 +56,12 @@ flowchart TD
         Extractor --> Split["Leak-Free Train/Val/Test Splitter"]
     end
 
-    subgraph Detection["2. Hybrid Multi-Modal Detection Engine"]
+    subgraph Detection["2. Multi-Modal Detection Engine"]
         Split --> Sup["Supervised Tree & DNN<br/>(XGBoost, RF, Tabular MLP)"]
         Split --> Semi["Unsupervised Reconstruction<br/>(Flow Autoencoder)"]
         Split --> Graph["Structural Interaction<br/>(Host Graph GNN)"]
         
-        Sup --> Fusion["Confidence & Risk Fusion Engine<br/>(P_supervised + Error_ae + Score_gnn)"]
-        Semi --> Fusion
+        Semi --> Fusion["Dual-View Fusion Engine<br/>(Error_ae + Score_gnn)"]
         Graph --> Fusion
     end
 
