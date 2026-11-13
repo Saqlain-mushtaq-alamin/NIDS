@@ -1,981 +1,650 @@
 {
-  "data_provenance": "SYNTHETIC. The Phase 2 captures are stand-ins and the host-graph data comes from src.data.graph_simulator. Results validate the pipeline and its gates; they are not a real-world performance claim.",
-  "quick_mode": false,
+  "data_provenance": "REAL DATA: Evaluated on real CIC-IDS2017 (TrafficLabelling) and UNSW-NB15 with IP and timestamp metadata. Scalers fitted strictly on benign flows; ECDF calibrated on benign validation errors; degree-only logistic regression baseline reported.",
+  "quick_mode": true,
   "components": {
     "anomaly": {
-      "dataset": "lab_flows",
+      "primary_dataset": "cic-ids-2017",
+      "secondary_dataset": "unsw-nb15",
       "seeds": [
-        42,
-        1337
+        42
       ],
-      "n_features": 28,
-      "threshold_mean": 1.378591601848592,
-      "detection_rate_mean": 0.6059528266566829,
-      "false_alarm_rate_mean": 0.015799256505576207,
-      "roc_auc_mean": 0.9526304142385724,
-      "average_precision_mean": 0.9896913737926716,
-      "per_seed": [
+      "latent_dim": 16,
+      "percentile": 99.0,
+      "models": [
+        "Autoencoder",
+        "IsolationForest",
+        "PCA",
+        "OneClassSVM"
+      ],
+      "aggregates": [
         {
-          "seed": 42,
-          "dataset": "lab_flows",
-          "n_features": 28,
-          "latent_dim": 16,
-          "threshold": 1.73744362115858,
-          "percentile": 99.0,
-          "n_train_benign": 1881,
-          "n_train_attack_excluded": 9348,
-          "n_val": 1605,
-          "n_test": 3209,
-          "n_test_attack": 2671,
-          "metrics": {
-            "precision": 0.9966124661246613,
-            "recall": 0.5507300636465743,
-            "f1": 0.7094285025319508,
-            "accuracy": 0.6244936117170458,
-            "detection_rate": 0.5507300636465743,
-            "false_alarm_rate": 0.00929368029739777,
-            "flag_rate": 0.45995637270177625,
-            "n_attack": 2671,
-            "n_benign": 538,
-            "roc_auc": 0.9574961134253492,
-            "average_precision": 0.9909365684532773
-          },
-          "per_class_detection": {
-            "Benign": {
-              "n": 538,
-              "mean_error": 0.3170650136037331,
-              "median_error": 0.14038125425577164,
-              "flag_rate": 0.00929368029739777,
-              "false_alarm_rate": 0.00929368029739777,
-              "is_attack": false
-            },
-            "Botnet": {
-              "n": 536,
-              "mean_error": 417.81486481383666,
-              "median_error": 219.7861328125,
-              "flag_rate": 0.9981343283582089,
-              "detection_rate": 0.9981343283582089,
-              "is_attack": true
-            },
-            "BruteForce": {
-              "n": 536,
-              "mean_error": 7.207455628287437,
-              "median_error": 0.8381806910037994,
-              "flag_rate": 0.11940298507462686,
-              "detection_rate": 0.11940298507462686,
-              "is_attack": true
-            },
-            "DoS": {
-              "n": 526,
-              "mean_error": 216.5398810958001,
-              "median_error": 1.768223762512207,
-              "flag_rate": 0.6026615969581749,
-              "detection_rate": 0.6026615969581749,
-              "is_attack": true
-            },
-            "PortScan": {
-              "n": 540,
-              "mean_error": 771.7191656170068,
-              "median_error": 52.58352851867676,
-              "flag_rate": 1.0,
-              "detection_rate": 1.0,
-              "is_attack": true
-            },
-            "WebAttack": {
-              "n": 533,
-              "mean_error": 15.508153338754099,
-              "median_error": 0.30012476444244385,
-              "flag_rate": 0.028142589118198873,
-              "detection_rate": 0.028142589118198873,
-              "is_attack": true
-            }
-          },
-          "error_summary": {
-            "benign_mean": 0.3170650136037331,
-            "benign_median": 0.14038125425577164,
-            "benign_p99": 0.7601992845535274,
-            "attack_mean": 287.0483475762295,
-            "attack_median": 1.7680169343948364,
-            "median_separation_ratio": 12.594394769928096
-          },
-          "notes": [],
-          "worst_features": [
-            {
-              "feature": "flow_packets_per_sec",
-              "mean_error": 2578.4905837216406
-            },
-            {
-              "feature": "bwd_iat_mean",
-              "mean_error": 1507.8136485322007
-            },
-            {
-              "feature": "flow_bytes_per_sec",
-              "mean_error": 1295.6284628243714
-            },
-            {
-              "feature": "fwd_iat_mean",
-              "mean_error": 653.3029347167698
-            },
-            {
-              "feature": "flow_iat_std",
-              "mean_error": 339.11328242947826
-            },
-            {
-              "feature": "flow_iat_mean",
-              "mean_error": 217.1235910183333
-            },
-            {
-              "feature": "flow_duration",
-              "mean_error": 49.576790086475675
-            },
-            {
-              "feature": "down_up_ratio",
-              "mean_error": 15.957398934709529
-            },
-            {
-              "feature": "total_length_of_bwd_packets",
-              "mean_error": 5.599575062920602
-            },
-            {
-              "feature": "bwd_packet_length_std",
-              "mean_error": 3.513522103017817
-            }
-          ]
+          "model": "Autoencoder",
+          "setting": "cross_dataset_unsw",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.0,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.0,
+          "detection_rate_ci95_high": 0.0,
+          "false_alarm_rate_mean": 0.0,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.0,
+          "false_alarm_rate_ci95_high": 0.0,
+          "false_alarms_per_100k_mean": 0.0,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 0.0,
+          "false_alarms_per_100k_ci95_high": 0.0,
+          "roc_auc_mean": 0.5,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.5,
+          "roc_auc_ci95_high": 0.5,
+          "pr_auc_mean": 0.8333333333333334,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.8333333333333334,
+          "pr_auc_ci95_high": 0.8333333333333334,
+          "f1_mean": 0.0,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.0,
+          "f1_ci95_high": 0.0
         },
         {
-          "seed": 1337,
-          "dataset": "lab_flows",
-          "n_features": 28,
-          "latent_dim": 16,
-          "threshold": 1.019739582538604,
-          "percentile": 99.0,
-          "n_train_benign": 1881,
-          "n_train_attack_excluded": 9348,
-          "n_val": 1605,
-          "n_test": 3209,
-          "n_test_attack": 2671,
-          "metrics": {
-            "precision": 0.9932508436445444,
-            "recall": 0.6611755896667915,
-            "f1": 0.7938862665767589,
-            "accuracy": 0.7142411966344656,
-            "detection_rate": 0.6611755896667915,
-            "false_alarm_rate": 0.022304832713754646,
-            "flag_rate": 0.5540666874415706,
-            "n_attack": 2671,
-            "n_benign": 538,
-            "roc_auc": 0.9477647150517956,
-            "average_precision": 0.9884461791320658
-          },
-          "per_class_detection": {
-            "Benign": {
-              "n": 538,
-              "mean_error": 0.29548286809326324,
-              "median_error": 0.15863292664289474,
-              "flag_rate": 0.022304832713754646,
-              "false_alarm_rate": 0.022304832713754646,
-              "is_attack": false
-            },
-            "Botnet": {
-              "n": 536,
-              "mean_error": 570.1700877244792,
-              "median_error": 226.0448989868164,
-              "flag_rate": 1.0,
-              "detection_rate": 1.0,
-              "is_attack": true
-            },
-            "BruteForce": {
-              "n": 536,
-              "mean_error": 6.196363223800018,
-              "median_error": 0.8926500976085663,
-              "flag_rate": 0.2462686567164179,
-              "detection_rate": 0.2462686567164179,
-              "is_attack": true
-            },
-            "DoS": {
-              "n": 526,
-              "mean_error": 288.3022099776413,
-              "median_error": 1.9182220697402954,
-              "flag_rate": 1.0,
-              "detection_rate": 1.0,
-              "is_attack": true
-            },
-            "PortScan": {
-              "n": 540,
-              "mean_error": 737.6370317796866,
-              "median_error": 49.635398864746094,
-              "flag_rate": 1.0,
-              "detection_rate": 1.0,
-              "is_attack": true
-            },
-            "WebAttack": {
-              "n": 533,
-              "mean_error": 27.239719301951425,
-              "median_error": 0.31129637360572815,
-              "flag_rate": 0.0600375234521576,
-              "detection_rate": 0.0600375234521576,
-              "is_attack": true
-            }
-          },
-          "error_summary": {
-            "benign_mean": 0.29548286809326324,
-            "benign_median": 0.15863292664289474,
-            "benign_p99": 3.4297552704811074,
-            "attack_mean": 327.0019272577641,
-            "attack_median": 1.9202531576156616,
-            "median_separation_ratio": 12.105009963905061
-          },
-          "notes": [],
-          "worst_features": [
-            {
-              "feature": "flow_packets_per_sec",
-              "mean_error": 2754.5635793974984
-            },
-            {
-              "feature": "bwd_iat_mean",
-              "mean_error": 1524.5468602602025
-            },
-            {
-              "feature": "fwd_iat_mean",
-              "mean_error": 1305.1361667430529
-            },
-            {
-              "feature": "flow_bytes_per_sec",
-              "mean_error": 978.1907878775148
-            },
-            {
-              "feature": "flow_iat_std",
-              "mean_error": 717.9845371849832
-            },
-            {
-              "feature": "flow_iat_mean",
-              "mean_error": 227.84083067579914
-            },
-            {
-              "feature": "flow_duration",
-              "mean_error": 68.91496225211418
-            },
-            {
-              "feature": "total_length_of_bwd_packets",
-              "mean_error": 7.642534472041724
-            },
-            {
-              "feature": "bwd_packet_length_min",
-              "mean_error": 7.018199434377539
-            },
-            {
-              "feature": "down_up_ratio",
-              "mean_error": 4.727234252770812
-            }
-          ]
+          "model": "Autoencoder",
+          "setting": "in_domain_full",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.8169014084507042,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.8169014084507042,
+          "detection_rate_ci95_high": 0.8169014084507042,
+          "false_alarm_rate_mean": 0.024691358024691357,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.024691358024691357,
+          "false_alarm_rate_ci95_high": 0.024691358024691357,
+          "false_alarms_per_100k_mean": 2469.135802469136,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 2469.135802469136,
+          "false_alarms_per_100k_ci95_high": 2469.135802469136,
+          "roc_auc_mean": 0.9678993025367569,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.9678993025367569,
+          "roc_auc_ci95_high": 0.9678993025367569,
+          "pr_auc_mean": 0.9952326056348808,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.9952326056348808,
+          "pr_auc_ci95_high": 0.9952326056348808,
+          "f1_mean": 0.8976784178847808,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.8976784178847808,
+          "f1_ci95_high": 0.8976784178847808
+        },
+        {
+          "model": "Autoencoder",
+          "setting": "prevalence_10pct",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.8333333333333334,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.8333333333333334,
+          "detection_rate_ci95_high": 0.8333333333333334,
+          "false_alarm_rate_mean": 0.024691358024691357,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.024691358024691357,
+          "false_alarm_rate_ci95_high": 0.024691358024691357,
+          "false_alarms_per_100k_mean": 2469.135802469136,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 2469.135802469136,
+          "false_alarms_per_100k_ci95_high": 2469.135802469136,
+          "roc_auc_mean": 0.970164609053498,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.970164609053498,
+          "roc_auc_ci95_high": 0.970164609053498,
+          "pr_auc_mean": 0.8279349308449326,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.8279349308449326,
+          "pr_auc_ci95_high": 0.8279349308449326,
+          "f1_mean": 0.8108108108108109,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.8108108108108109,
+          "f1_ci95_high": 0.8108108108108109
+        },
+        {
+          "model": "Autoencoder",
+          "setting": "prevalence_1pct",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.5,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.5,
+          "detection_rate_ci95_high": 0.5,
+          "false_alarm_rate_mean": 0.024691358024691357,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.024691358024691357,
+          "false_alarm_rate_ci95_high": 0.024691358024691357,
+          "false_alarms_per_100k_mean": 2469.135802469136,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 2469.135802469136,
+          "false_alarms_per_100k_ci95_high": 2469.135802469136,
+          "roc_auc_mean": 0.9537037037037037,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.9537037037037037,
+          "roc_auc_ci95_high": 0.9537037037037037,
+          "pr_auc_mean": 0.5588235294117647,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.5588235294117647,
+          "pr_auc_ci95_high": 0.5588235294117647,
+          "f1_mean": 0.2857142857142857,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.2857142857142857,
+          "f1_ci95_high": 0.2857142857142857
+        },
+        {
+          "model": "Autoencoder",
+          "setting": "prevalence_5pct",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.8888888888888888,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.8888888888888888,
+          "detection_rate_ci95_high": 0.8888888888888888,
+          "false_alarm_rate_mean": 0.024691358024691357,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.024691358024691357,
+          "false_alarm_rate_ci95_high": 0.024691358024691357,
+          "false_alarms_per_100k_mean": 2469.135802469136,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 2469.135802469136,
+          "false_alarms_per_100k_ci95_high": 2469.135802469136,
+          "roc_auc_mean": 0.9814814814814815,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.9814814814814815,
+          "roc_auc_ci95_high": 0.9814814814814815,
+          "pr_auc_mean": 0.7882154882154881,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.7882154882154881,
+          "pr_auc_ci95_high": 0.7882154882154881,
+          "f1_mean": 0.7619047619047619,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.7619047619047619,
+          "f1_ci95_high": 0.7619047619047619
+        },
+        {
+          "model": "IsolationForest",
+          "setting": "cross_dataset_unsw",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.0,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.0,
+          "detection_rate_ci95_high": 0.0,
+          "false_alarm_rate_mean": 0.0,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.0,
+          "false_alarm_rate_ci95_high": 0.0,
+          "false_alarms_per_100k_mean": 0.0,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 0.0,
+          "false_alarms_per_100k_ci95_high": 0.0,
+          "roc_auc_mean": 0.5,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.5,
+          "roc_auc_ci95_high": 0.5,
+          "pr_auc_mean": NaN,
+          "f1_mean": 0.0,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.0,
+          "f1_ci95_high": 0.0
+        },
+        {
+          "model": "IsolationForest",
+          "setting": "in_domain_full",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.8348982785602503,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.8348982785602503,
+          "detection_rate_ci95_high": 0.8348982785602503,
+          "false_alarm_rate_mean": 0.030864197530864196,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.030864197530864196,
+          "false_alarm_rate_ci95_high": 0.030864197530864196,
+          "false_alarms_per_100k_mean": 3086.4197530864194,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 3086.4197530864194,
+          "false_alarms_per_100k_ci95_high": 3086.4197530864194,
+          "roc_auc_mean": 0.973763017059835,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.973763017059835,
+          "roc_auc_ci95_high": 0.973763017059835,
+          "pr_auc_mean": NaN,
+          "f1_mean": 0.9080851063829787,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.9080851063829787,
+          "f1_ci95_high": 0.9080851063829787
+        },
+        {
+          "model": "IsolationForest",
+          "setting": "prevalence_10pct",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.7777777777777778,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.7777777777777778,
+          "detection_rate_ci95_high": 0.7777777777777778,
+          "false_alarm_rate_mean": 0.030864197530864196,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.030864197530864196,
+          "false_alarm_rate_ci95_high": 0.030864197530864196,
+          "false_alarms_per_100k_mean": 3086.4197530864194,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 3086.4197530864194,
+          "false_alarms_per_100k_ci95_high": 3086.4197530864194,
+          "roc_auc_mean": 0.9636488340192043,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.9636488340192043,
+          "roc_auc_ci95_high": 0.9636488340192043,
+          "pr_auc_mean": 0.8582279230128693,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.8582279230128693,
+          "pr_auc_ci95_high": 0.8582279230128693,
+          "f1_mean": 0.7567567567567568,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.7567567567567568,
+          "f1_ci95_high": 0.7567567567567568
+        },
+        {
+          "model": "IsolationForest",
+          "setting": "prevalence_1pct",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.5,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.5,
+          "detection_rate_ci95_high": 0.5,
+          "false_alarm_rate_mean": 0.030864197530864196,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.030864197530864196,
+          "false_alarm_rate_ci95_high": 0.030864197530864196,
+          "false_alarms_per_100k_mean": 3086.4197530864194,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 3086.4197530864194,
+          "false_alarms_per_100k_ci95_high": 3086.4197530864194,
+          "roc_auc_mean": 0.9166666666666667,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.9166666666666667,
+          "roc_auc_ci95_high": 0.9166666666666667,
+          "pr_auc_mean": 0.5344827586206896,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.5344827586206896,
+          "pr_auc_ci95_high": 0.5344827586206896,
+          "f1_mean": 0.25,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.25,
+          "f1_ci95_high": 0.25
+        },
+        {
+          "model": "IsolationForest",
+          "setting": "prevalence_5pct",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.7777777777777778,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.7777777777777778,
+          "detection_rate_ci95_high": 0.7777777777777778,
+          "false_alarm_rate_mean": 0.030864197530864196,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.030864197530864196,
+          "false_alarm_rate_ci95_high": 0.030864197530864196,
+          "false_alarms_per_100k_mean": 3086.4197530864194,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 3086.4197530864194,
+          "false_alarms_per_100k_ci95_high": 3086.4197530864194,
+          "roc_auc_mean": 0.9780521262002744,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.9780521262002744,
+          "roc_auc_ci95_high": 0.9780521262002744,
+          "pr_auc_mean": 0.8739316239316242,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.8739316239316242,
+          "pr_auc_ci95_high": 0.8739316239316242,
+          "f1_mean": 0.6666666666666666,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.6666666666666666,
+          "f1_ci95_high": 0.6666666666666666
+        },
+        {
+          "model": "OneClassSVM",
+          "setting": "cross_dataset_unsw",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.0,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.0,
+          "detection_rate_ci95_high": 0.0,
+          "false_alarm_rate_mean": 0.0,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.0,
+          "false_alarm_rate_ci95_high": 0.0,
+          "false_alarms_per_100k_mean": 0.0,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 0.0,
+          "false_alarms_per_100k_ci95_high": 0.0,
+          "roc_auc_mean": 0.5,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.5,
+          "roc_auc_ci95_high": 0.5,
+          "pr_auc_mean": NaN,
+          "f1_mean": 0.0,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.0,
+          "f1_ci95_high": 0.0
+        },
+        {
+          "model": "OneClassSVM",
+          "setting": "in_domain_full",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.8098591549295775,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.8098591549295775,
+          "detection_rate_ci95_high": 0.8098591549295775,
+          "false_alarm_rate_mean": 0.037037037037037035,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.037037037037037035,
+          "false_alarm_rate_ci95_high": 0.037037037037037035,
+          "false_alarms_per_100k_mean": 3703.7037037037035,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 3703.7037037037035,
+          "false_alarms_per_100k_ci95_high": 3703.7037037037035,
+          "roc_auc_mean": 0.9621466798044783,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.9621466798044783,
+          "roc_auc_ci95_high": 0.9621466798044783,
+          "pr_auc_mean": NaN,
+          "f1_mean": 0.8926261319534282,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.8926261319534282,
+          "f1_ci95_high": 0.8926261319534282
+        },
+        {
+          "model": "OneClassSVM",
+          "setting": "prevalence_10pct",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.8333333333333334,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.8333333333333334,
+          "detection_rate_ci95_high": 0.8333333333333334,
+          "false_alarm_rate_mean": 0.037037037037037035,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.037037037037037035,
+          "false_alarm_rate_ci95_high": 0.037037037037037035,
+          "false_alarms_per_100k_mean": 3703.7037037037035,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 3703.7037037037035,
+          "false_alarms_per_100k_ci95_high": 3703.7037037037035,
+          "roc_auc_mean": 0.9698216735253773,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.9698216735253773,
+          "roc_auc_ci95_high": 0.9698216735253773,
+          "pr_auc_mean": 0.7687504937963107,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.7687504937963107,
+          "pr_auc_ci95_high": 0.7687504937963107,
+          "f1_mean": 0.7692307692307693,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.7692307692307693,
+          "f1_ci95_high": 0.7692307692307693
+        },
+        {
+          "model": "OneClassSVM",
+          "setting": "prevalence_1pct",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.5,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.5,
+          "detection_rate_ci95_high": 0.5,
+          "false_alarm_rate_mean": 0.037037037037037035,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.037037037037037035,
+          "false_alarm_rate_ci95_high": 0.037037037037037035,
+          "false_alarms_per_100k_mean": 3703.7037037037035,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 3703.7037037037035,
+          "false_alarms_per_100k_ci95_high": 3703.7037037037035,
+          "roc_auc_mean": 0.8796296296296297,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.8796296296296297,
+          "roc_auc_ci95_high": 0.8796296296296297,
+          "pr_auc_mean": 0.524390243902439,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.524390243902439,
+          "pr_auc_ci95_high": 0.524390243902439,
+          "f1_mean": 0.2222222222222222,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.2222222222222222,
+          "f1_ci95_high": 0.2222222222222222
+        },
+        {
+          "model": "OneClassSVM",
+          "setting": "prevalence_5pct",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.8888888888888888,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.8888888888888888,
+          "detection_rate_ci95_high": 0.8888888888888888,
+          "false_alarm_rate_mean": 0.037037037037037035,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.037037037037037035,
+          "false_alarm_rate_ci95_high": 0.037037037037037035,
+          "false_alarms_per_100k_mean": 3703.7037037037035,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 3703.7037037037035,
+          "false_alarms_per_100k_ci95_high": 3703.7037037037035,
+          "roc_auc_mean": 0.9609053497942387,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.9609053497942387,
+          "roc_auc_ci95_high": 0.9609053497942387,
+          "pr_auc_mean": 0.726863722697056,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.726863722697056,
+          "pr_auc_ci95_high": 0.726863722697056,
+          "f1_mean": 0.6956521739130435,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.6956521739130435,
+          "f1_ci95_high": 0.6956521739130435
+        },
+        {
+          "model": "PCA",
+          "setting": "cross_dataset_unsw",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.0,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.0,
+          "detection_rate_ci95_high": 0.0,
+          "false_alarm_rate_mean": 0.0,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.0,
+          "false_alarm_rate_ci95_high": 0.0,
+          "false_alarms_per_100k_mean": 0.0,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 0.0,
+          "false_alarms_per_100k_ci95_high": 0.0,
+          "roc_auc_mean": 0.5,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.5,
+          "roc_auc_ci95_high": 0.5,
+          "pr_auc_mean": NaN,
+          "f1_mean": 0.0,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.0,
+          "f1_ci95_high": 0.0
+        },
+        {
+          "model": "PCA",
+          "setting": "in_domain_full",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.798904538341158,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.798904538341158,
+          "detection_rate_ci95_high": 0.798904538341158,
+          "false_alarm_rate_mean": 0.006172839506172839,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.006172839506172839,
+          "false_alarm_rate_ci95_high": 0.006172839506172839,
+          "false_alarms_per_100k_mean": 617.283950617284,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 617.283950617284,
+          "false_alarms_per_100k_ci95_high": 617.283950617284,
+          "roc_auc_mean": 0.9456471338317974,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.9456471338317974,
+          "roc_auc_ci95_high": 0.9456471338317974,
+          "pr_auc_mean": NaN,
+          "f1_mean": 0.8878260869565218,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.8878260869565218,
+          "f1_ci95_high": 0.8878260869565218
+        },
+        {
+          "model": "PCA",
+          "setting": "prevalence_10pct",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.7777777777777778,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.7777777777777778,
+          "detection_rate_ci95_high": 0.7777777777777778,
+          "false_alarm_rate_mean": 0.006172839506172839,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.006172839506172839,
+          "false_alarm_rate_ci95_high": 0.006172839506172839,
+          "false_alarms_per_100k_mean": 617.283950617284,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 617.283950617284,
+          "false_alarms_per_100k_ci95_high": 617.283950617284,
+          "roc_auc_mean": 0.8988340192043895,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.8988340192043895,
+          "roc_auc_ci95_high": 0.8988340192043895,
+          "pr_auc_mean": 0.8678121573954909,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.8678121573954909,
+          "pr_auc_ci95_high": 0.8678121573954909,
+          "f1_mean": 0.8484848484848485,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.8484848484848485,
+          "f1_ci95_high": 0.8484848484848485
+        },
+        {
+          "model": "PCA",
+          "setting": "prevalence_1pct",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.5,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.5,
+          "detection_rate_ci95_high": 0.5,
+          "false_alarm_rate_mean": 0.006172839506172839,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.006172839506172839,
+          "false_alarm_rate_ci95_high": 0.006172839506172839,
+          "false_alarms_per_100k_mean": 617.283950617284,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 617.283950617284,
+          "false_alarms_per_100k_ci95_high": 617.283950617284,
+          "roc_auc_mean": 0.6697530864197531,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.6697530864197531,
+          "roc_auc_ci95_high": 0.6697530864197531,
+          "pr_auc_mean": 0.5091743119266054,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.5091743119266054,
+          "pr_auc_ci95_high": 0.5091743119266054,
+          "f1_mean": 0.5,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.5,
+          "f1_ci95_high": 0.5
+        },
+        {
+          "model": "PCA",
+          "setting": "prevalence_5pct",
+          "n_seeds": 1,
+          "detection_rate_mean": 0.8888888888888888,
+          "detection_rate_std": 0.0,
+          "detection_rate_ci95_low": 0.8888888888888888,
+          "detection_rate_ci95_high": 0.8888888888888888,
+          "false_alarm_rate_mean": 0.006172839506172839,
+          "false_alarm_rate_std": 0.0,
+          "false_alarm_rate_ci95_low": 0.006172839506172839,
+          "false_alarm_rate_ci95_high": 0.006172839506172839,
+          "false_alarms_per_100k_mean": 617.283950617284,
+          "false_alarms_per_100k_std": 0.0,
+          "false_alarms_per_100k_ci95_low": 617.283950617284,
+          "false_alarms_per_100k_ci95_high": 617.283950617284,
+          "roc_auc_mean": 0.9266117969821673,
+          "roc_auc_std": 0.0,
+          "roc_auc_ci95_low": 0.9266117969821673,
+          "roc_auc_ci95_high": 0.9266117969821673,
+          "pr_auc_mean": 0.8975095785440614,
+          "pr_auc_std": 0.0,
+          "pr_auc_ci95_low": 0.8975095785440614,
+          "pr_auc_ci95_high": 0.8975095785440614,
+          "f1_mean": 0.8888888888888888,
+          "f1_std": 0.0,
+          "f1_ci95_low": 0.8888888888888888,
+          "f1_ci95_high": 0.8888888888888888
         }
-      ],
-      "limitations": [
-        "The underlying flow data is a synthetic stand-in, so these numbers validate the pipeline, not real-world detection quality.",
-        "The reconstruction threshold is calibrated on benign validation flows only; raising the percentile trades detection rate for a lower false-alarm rate."
       ]
     },
     "gnn": {
-      "data_source": "SYNTHETIC (src.data.graph_simulator) \u2014 not a real capture",
+      "dataset_source": "real_cic2017",
       "seeds": [
-        42,
-        1337,
-        2024
+        42
       ],
-      "windows_per_scenario": 40,
-      "gnn_accuracy_mean": 1.0,
+      "n_train_windows": 5387,
+      "n_test_windows": 1796,
+      "gnn_accuracy_mean": 0.8747216035634744,
       "gnn_accuracy_std": 0.0,
-      "baseline_accuracy_mean": 1.0,
-      "baseline_accuracy_std": 0.0,
-      "gnn_outperforms_degree_baseline": false,
-      "latency_budget_ms": 35.0,
-      "latency_within_budget": true,
-      "window_id_overlap": 0,
+      "gnn_f1_mean": 0.8162682739520156,
+      "gnn_f1_std": 0.0,
+      "degree_baseline_accuracy_mean": 0.8747216035634744,
+      "degree_baseline_f1_mean": 0.9331749331749332,
+      "gnn_wins_percentage": 0.0,
+      "latency_end_to_end_ms_mean": 7.66731000001073,
+      "latency_inference_cpu_ms_mean": 0.5411100000401348,
+      "latency_inference_gpu_ms_mean": 2.7929699999049262,
+      "window_delay_seconds": 60.0,
+      "budget_ms": 35.0,
       "per_seed": [
         {
           "seed": 42,
-          "n_windows": 160,
-          "n_flows": 13793,
-          "n_train_windows": 120,
-          "n_test_windows": 40,
-          "window_id_overlap": 0,
-          "window_label_counts": {
-            "Infiltration": 80,
-            "Benign": 40,
-            "PortScan": 40
-          },
-          "gnn_metrics": {
-            "accuracy": 1.0,
-            "precision": 1.0,
-            "recall": 1.0,
-            "f1": 1.0,
-            "macro_f1": 1.0,
-            "weighted_f1": 1.0,
-            "mcc": 1.0
-          },
-          "gnn_per_class": [
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 30.0
-            },
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 10.0
-            },
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 1.0
-            },
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 40.0
-            },
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 40.0
-            }
-          ],
-          "baseline": {
-            "name": "degree_logistic_regression",
-            "accuracy": 1.0,
-            "n_features": 22
-          },
-          "latency": {
-            "n_iterations": 200,
-            "batch_size": 1,
-            "n_nodes": 50,
-            "n_edges": 200,
-            "device": "cuda",
-            "mean_ms": 1.2995474999456746,
-            "median_ms": 1.184399999829111,
-            "p95_ms": 1.7620200000237671,
-            "min_ms": 1.0944999999082938,
-            "max_ms": 2.106999999796244,
-            "budget_ms": 35.0,
-            "within_budget": true,
-            "headroom_ms": 33.700452500054325
-          },
-          "notes": []
-        },
-        {
-          "seed": 1337,
-          "n_windows": 160,
-          "n_flows": 13789,
-          "n_train_windows": 120,
-          "n_test_windows": 40,
-          "window_id_overlap": 0,
-          "window_label_counts": {
-            "Infiltration": 80,
-            "Benign": 40,
-            "PortScan": 40
-          },
-          "gnn_metrics": {
-            "accuracy": 1.0,
-            "precision": 1.0,
-            "recall": 1.0,
-            "f1": 1.0,
-            "macro_f1": 1.0,
-            "weighted_f1": 1.0,
-            "mcc": 1.0
-          },
-          "gnn_per_class": [
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 30.0
-            },
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 10.0
-            },
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 1.0
-            },
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 40.0
-            },
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 40.0
-            }
-          ],
-          "baseline": {
-            "name": "degree_logistic_regression",
-            "accuracy": 1.0,
-            "n_features": 22
-          },
-          "latency": {
-            "n_iterations": 200,
-            "batch_size": 1,
-            "n_nodes": 50,
-            "n_edges": 200,
-            "device": "cuda",
-            "mean_ms": 1.2919135000151982,
-            "median_ms": 1.1685499998748128,
-            "p95_ms": 1.7904699999462534,
-            "min_ms": 1.1070000000472646,
-            "max_ms": 2.285099999880913,
-            "budget_ms": 35.0,
-            "within_budget": true,
-            "headroom_ms": 33.7080864999848
-          },
-          "notes": []
-        },
-        {
-          "seed": 2024,
-          "n_windows": 160,
-          "n_flows": 13798,
-          "n_train_windows": 120,
-          "n_test_windows": 40,
-          "window_id_overlap": 0,
-          "window_label_counts": {
-            "Infiltration": 80,
-            "Benign": 40,
-            "PortScan": 40
-          },
-          "gnn_metrics": {
-            "accuracy": 1.0,
-            "precision": 1.0,
-            "recall": 1.0,
-            "f1": 1.0,
-            "macro_f1": 1.0,
-            "weighted_f1": 1.0,
-            "mcc": 1.0
-          },
-          "gnn_per_class": [
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 30.0
-            },
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 10.0
-            },
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 1.0
-            },
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 40.0
-            },
-            {
-              "precision": 1.0,
-              "recall": 1.0,
-              "f1-score": 1.0,
-              "support": 40.0
-            }
-          ],
-          "baseline": {
-            "name": "degree_logistic_regression",
-            "accuracy": 1.0,
-            "n_features": 22
-          },
-          "latency": {
-            "n_iterations": 200,
-            "batch_size": 1,
-            "n_nodes": 50,
-            "n_edges": 200,
-            "device": "cuda",
-            "mean_ms": 1.2742989999924248,
-            "median_ms": 1.1540999998942425,
-            "p95_ms": 1.7827549999537946,
-            "min_ms": 1.0820000002240704,
-            "max_ms": 2.13339999982054,
-            "budget_ms": 35.0,
-            "within_budget": true,
-            "headroom_ms": 33.725701000007575
-          },
-          "notes": []
+          "dataset_source": "real_cic2017",
+          "n_windows": 7183,
+          "n_train_windows": 5387,
+          "n_test_windows": 1796,
+          "gnn_accuracy": 0.8747216035634744,
+          "gnn_f1": 0.8162682739520156,
+          "degree_baseline_accuracy": 0.8747216035634744,
+          "degree_baseline_f1": 0.9331749331749332,
+          "gnn_wins_over_degree_baseline": false,
+          "latency_feature_extraction_ms": 0.05089000005682465,
+          "latency_graph_build_ms": 4.823450000048979,
+          "latency_inference_cpu_ms": 0.5411100000401348,
+          "latency_inference_gpu_ms": 2.7929699999049262,
+          "latency_end_to_end_ms": 7.66731000001073,
+          "window_delay_seconds": 60.0,
+          "meets_latency_budget": true
         }
-      ],
-      "limitations": [
-        "The four scenarios are synthetic and structurally distinct, so the task is easier than real network traffic.",
-        "A degree-only logistic regression reaches comparable accuracy, so this experiment does NOT demonstrate that the GNN adds value over a simple graph-statistics baseline.",
-        "Results validate that the pipeline runs and the gates are met; they are not a performance claim about real-world detection."
       ]
     },
     "drift": {
       "seeds": [
-        42,
-        1337
+        42
       ],
       "adwin_delta": 0.002,
-      "delta_is_false_positive_rate_bound": true,
-      "mean_alerts_on_shift": 4.5,
-      "mean_alerts_on_control": 0.0,
-      "mean_monitoring_coverage": 0.625,
-      "mean_recall_on_monitored_shifted_features": 1.0,
-      "psi_sanity": {
-        "identical": 0.01468405210464219,
-        "shifted": 7.563811188681315
+      "temporal_drift": {
+        "mean_control_false_alarm_rate": 0.0,
+        "mean_temporal_alerts": 12.0,
+        "mean_detection_delay_flows": 43.0
       },
-      "per_seed": [
-        {
-          "seed": 42,
-          "monitored_features": [
-            "f2",
-            "f3",
-            "f4",
-            "f5",
-            "f6",
-            "f7"
-          ],
-          "n_alerts": 4,
-          "alert_kinds": {
-            "psi_shift": 2,
-            "prediction_drift": 1,
-            "detection_rate_drift": 1
-          },
-          "alerts": [
-            {
-              "feature": "f2",
-              "kind": "psi_shift",
-              "timestamp": null,
-              "window": null,
-              "reference_mean": null,
-              "current_mean": null,
-              "psi": 12.433855885838662,
-              "magnitude": null,
-              "z_score": null,
-              "direction": null,
-              "severity": "high",
-              "message": "PSI(f2) = 12.434 >= 0.25 (significant shift)"
-            },
-            {
-              "feature": "f3",
-              "kind": "psi_shift",
-              "timestamp": null,
-              "window": null,
-              "reference_mean": null,
-              "current_mean": null,
-              "psi": 11.275246270904413,
-              "magnitude": null,
-              "z_score": null,
-              "direction": null,
-              "severity": "high",
-              "message": "PSI(f3) = 11.275 >= 0.25 (significant shift)"
-            },
-            {
-              "feature": "confidence",
-              "kind": "prediction_drift",
-              "timestamp": null,
-              "window": 560,
-              "reference_mean": null,
-              "current_mean": 0.10091890780150173,
-              "psi": null,
-              "magnitude": null,
-              "z_score": null,
-              "direction": "increase",
-              "severity": "medium",
-              "message": "Detection confidence drifted increase (current mean 0.1009, ADWIN estimation 0.1006); investigate retraining need"
-            },
-            {
-              "feature": "detection_rate",
-              "kind": "detection_rate_drift",
-              "timestamp": null,
-              "window": 560,
-              "reference_mean": null,
-              "current_mean": 1.0,
-              "psi": null,
-              "magnitude": null,
-              "z_score": null,
-              "direction": "decrease",
-              "severity": "medium",
-              "message": "Detection rate drifted decrease (current mean 1, ADWIN estimation 1); investigate retraining need"
-            }
-          ],
-          "feature_stats": [
-            {
-              "feature": "f7",
-              "n_samples": 600,
-              "reference_mean": -0.035453435712871094,
-              "current_mean": -0.05945233160619498,
-              "reference_std": 1.028296128631377,
-              "current_std": 1.034668879653697,
-              "shift": -0.023998895893323886,
-              "psi": 0.04864102522932299,
-              "adwin_drift_detected": false,
-              "adwin_detections": 0,
-              "adwin_width": 1800
-            },
-            {
-              "feature": "f2",
-              "n_samples": 600,
-              "reference_mean": -0.015248312938730078,
-              "current_mean": 4.095374009003014,
-              "reference_std": 1.0191104718654453,
-              "current_std": 0.9528096831724093,
-              "shift": 4.110622321941744,
-              "psi": 12.433855885838662,
-              "adwin_drift_detected": true,
-              "adwin_detections": 1,
-              "adwin_width": 1192
-            },
-            {
-              "feature": "f5",
-              "n_samples": 600,
-              "reference_mean": 6.549519289531957e-05,
-              "current_mean": -0.02514350909293087,
-              "reference_std": 1.0165965140246394,
-              "current_std": 1.0281740304386275,
-              "shift": -0.02520900428582619,
-              "psi": 0.06817525766381388,
-              "adwin_drift_detected": false,
-              "adwin_detections": 0,
-              "adwin_width": 1800
-            },
-            {
-              "feature": "f3",
-              "n_samples": 600,
-              "reference_mean": 0.002450559568189975,
-              "current_mean": 3.8745777161394015,
-              "reference_std": 1.0018037759240568,
-              "current_std": 1.0437082873196872,
-              "shift": 3.8721271565712114,
-              "psi": 11.158503656415983,
-              "adwin_drift_detected": true,
-              "adwin_detections": 1,
-              "adwin_width": 1192
-            },
-            {
-              "feature": "f4",
-              "n_samples": 600,
-              "reference_mean": 0.01637915445047544,
-              "current_mean": -0.08658819249245786,
-              "reference_std": 0.9969408368582418,
-              "current_std": 0.9774150795302761,
-              "shift": -0.1029673469429333,
-              "psi": 0.1791863567982937,
-              "adwin_drift_detected": false,
-              "adwin_detections": 0,
-              "adwin_width": 1800
-            },
-            {
-              "feature": "f6",
-              "n_samples": 600,
-              "reference_mean": -0.07330051694434898,
-              "current_mean": -0.007720263834039778,
-              "reference_std": 0.9926925551694934,
-              "current_std": 0.9968874588400841,
-              "shift": 0.06558025311030921,
-              "psi": 0.06769568431903075,
-              "adwin_drift_detected": false,
-              "adwin_detections": 0,
-              "adwin_width": 1800
-            },
-            {
-              "feature": "detection_rate",
-              "n_samples": 0,
-              "reference_mean": NaN,
-              "current_mean": 1.0,
-              "reference_std": NaN,
-              "current_std": NaN,
-              "shift": NaN,
-              "psi": NaN,
-              "adwin_drift_detected": true,
-              "adwin_detections": 1,
-              "adwin_width": 560
-            }
-          ],
-          "detection_rate": 1.0,
-          "drifted_features": [
-            "f0",
-            "f1",
-            "f2",
-            "f3"
-          ],
-          "shifted_and_monitored": [
-            "f2",
-            "f3"
-          ],
-          "alerted_features": [
-            "confidence",
-            "detection_rate",
-            "f2",
-            "f3"
-          ],
-          "monitoring_coverage": 0.5,
-          "recall_on_monitored_shifted_features": 1.0,
-          "control_alerts": 0,
-          "control_features_alerted": [],
-          "psi_sanity": {
-            "identical": 0.01468405210464219,
-            "shifted": 7.563811188681315
-          }
-        },
-        {
-          "seed": 1337,
-          "monitored_features": [
-            "f1",
-            "f2",
-            "f3",
-            "f5",
-            "f6",
-            "f7"
-          ],
-          "n_alerts": 5,
-          "alert_kinds": {
-            "psi_shift": 3,
-            "prediction_drift": 1,
-            "detection_rate_drift": 1
-          },
-          "alerts": [
-            {
-              "feature": "f3",
-              "kind": "psi_shift",
-              "timestamp": null,
-              "window": null,
-              "reference_mean": null,
-              "current_mean": null,
-              "psi": 12.433855885838662,
-              "magnitude": null,
-              "z_score": null,
-              "direction": null,
-              "severity": "high",
-              "message": "PSI(f3) = 12.434 >= 0.25 (significant shift)"
-            },
-            {
-              "feature": "f2",
-              "kind": "psi_shift",
-              "timestamp": null,
-              "window": null,
-              "reference_mean": null,
-              "current_mean": null,
-              "psi": 11.249681490292918,
-              "magnitude": null,
-              "z_score": null,
-              "direction": null,
-              "severity": "high",
-              "message": "PSI(f2) = 11.250 >= 0.25 (significant shift)"
-            },
-            {
-              "feature": "f1",
-              "kind": "psi_shift",
-              "timestamp": null,
-              "window": null,
-              "reference_mean": null,
-              "current_mean": null,
-              "psi": 12.433855885838662,
-              "magnitude": null,
-              "z_score": null,
-              "direction": null,
-              "severity": "high",
-              "message": "PSI(f1) = 12.434 >= 0.25 (significant shift)"
-            },
-            {
-              "feature": "confidence",
-              "kind": "prediction_drift",
-              "timestamp": null,
-              "window": 560,
-              "reference_mean": null,
-              "current_mean": 0.10211900102442792,
-              "psi": null,
-              "magnitude": null,
-              "z_score": null,
-              "direction": "decrease",
-              "severity": "medium",
-              "message": "Detection confidence drifted decrease (current mean 0.1021, ADWIN estimation 0.1023); investigate retraining need"
-            },
-            {
-              "feature": "detection_rate",
-              "kind": "detection_rate_drift",
-              "timestamp": null,
-              "window": 560,
-              "reference_mean": null,
-              "current_mean": 1.0,
-              "psi": null,
-              "magnitude": null,
-              "z_score": null,
-              "direction": "decrease",
-              "severity": "medium",
-              "message": "Detection rate drifted decrease (current mean 1, ADWIN estimation 1); investigate retraining need"
-            }
-          ],
-          "feature_stats": [
-            {
-              "feature": "f3",
-              "n_samples": 600,
-              "reference_mean": -0.05994101419495543,
-              "current_mean": 4.063354872343071,
-              "reference_std": 1.0316768609381095,
-              "current_std": 1.0014960211070805,
-              "shift": 4.123295886538027,
-              "psi": 12.433855885838662,
-              "adwin_drift_detected": true,
-              "adwin_detections": 1,
-              "adwin_width": 1192
-            },
-            {
-              "feature": "f6",
-              "n_samples": 600,
-              "reference_mean": -0.003730813144369832,
-              "current_mean": 0.04952669917743563,
-              "reference_std": 1.024752511103212,
-              "current_std": 0.9890978910321553,
-              "shift": 0.053257512321805464,
-              "psi": 0.056031862916481996,
-              "adwin_drift_detected": false,
-              "adwin_detections": 0,
-              "adwin_width": 1800
-            },
-            {
-              "feature": "f2",
-              "n_samples": 600,
-              "reference_mean": -0.015820277855388885,
-              "current_mean": 3.9877516072162447,
-              "reference_std": 1.0213923961262754,
-              "current_std": 0.9717643680090949,
-              "shift": 4.003571885071634,
-              "psi": 12.433855885838662,
-              "adwin_drift_detected": true,
-              "adwin_detections": 1,
-              "adwin_width": 1192
-            },
-            {
-              "feature": "f7",
-              "n_samples": 600,
-              "reference_mean": 0.08705869442962176,
-              "current_mean": 0.06561883552816815,
-              "reference_std": 1.0176931527591222,
-              "current_std": 1.0095946995168745,
-              "shift": -0.021439858901453612,
-              "psi": 0.04582152398027281,
-              "adwin_drift_detected": false,
-              "adwin_detections": 0,
-              "adwin_width": 1800
-            },
-            {
-              "feature": "f1",
-              "n_samples": 600,
-              "reference_mean": 0.07763973471263212,
-              "current_mean": 4.017433825171914,
-              "reference_std": 1.0077970812601604,
-              "current_std": 1.000798111835816,
-              "shift": 3.9397940904592823,
-              "psi": 12.433855885838662,
-              "adwin_drift_detected": true,
-              "adwin_detections": 1,
-              "adwin_width": 1192
-            },
-            {
-              "feature": "f5",
-              "n_samples": 600,
-              "reference_mean": 0.021337188717667956,
-              "current_mean": 0.12208164795078844,
-              "reference_std": 0.9973481170745603,
-              "current_std": 0.9796654182630025,
-              "shift": 0.10074445923312048,
-              "psi": 0.09785236145049148,
-              "adwin_drift_detected": false,
-              "adwin_detections": 0,
-              "adwin_width": 1800
-            },
-            {
-              "feature": "detection_rate",
-              "n_samples": 0,
-              "reference_mean": NaN,
-              "current_mean": 1.0,
-              "reference_std": NaN,
-              "current_std": NaN,
-              "shift": NaN,
-              "psi": NaN,
-              "adwin_drift_detected": true,
-              "adwin_detections": 1,
-              "adwin_width": 560
-            }
-          ],
-          "detection_rate": 1.0,
-          "drifted_features": [
-            "f0",
-            "f1",
-            "f2",
-            "f3"
-          ],
-          "shifted_and_monitored": [
-            "f1",
-            "f2",
-            "f3"
-          ],
-          "alerted_features": [
-            "confidence",
-            "detection_rate",
-            "f1",
-            "f2",
-            "f3"
-          ],
-          "monitoring_coverage": 0.75,
-          "recall_on_monitored_shifted_features": 1.0,
-          "control_alerts": 0,
-          "control_features_alerted": [],
-          "psi_sanity": {
-            "identical": 0.01468405210464219,
-            "shifted": 7.563811188681315
-          }
-        }
-      ],
-      "limitations": [
-        "The drift is synthetic: it demonstrates that the monitors fire and attribute the change to the right features, not that they will detect drift in real traffic.",
-        "ADWIN's delta bounds the false-positive rate, so the control stream is expected to raise some alerts; it is reported rather than tuned away.",
-        "Nothing here retrains a model or blocks traffic. Drift output is evidence for a human to adjudicate."
-      ]
-    },
-    "fusion": {
-      "n_flows": 2000,
-      "n_ground_truth_attack": 600,
-      "fused": {
-        "recall": 0.9866666666666667,
-        "precision": 1.0
+      "cross_dataset_drift": {
+        "mean_alerts": 6.0,
+        "mean_detection_delay_flows": 11.0
       },
-      "anomaly_view_alone": {
-        "recall": 0.5,
-        "precision": 1.0
-      },
-      "graph_view_alone": {
-        "recall": 0.7183333333333334,
-        "precision": 1.0
-      },
-      "agreement": {
-        "rate": 0.7655,
-        "n_agree": 1531,
-        "n_disputed": 469
-      },
-      "n_needs_review": 425,
-      "n_escalated_as_anomaly": 592,
-      "notes": [],
-      "limitations": [
-        "Both views are simulated scores, so this measures the fusion logic rather than any detector's real-world accuracy."
-      ]
+      "synthetic_benchmark": {
+        "mean_alerts_on_shift": 4.0,
+        "mean_alerts_on_control": 0.0,
+        "mean_monitoring_coverage": 0.5,
+        "mean_recall_on_monitored": 1.0
+      }
     }
   },
-  "failures": {}
+  "failures": {
+    "fusion": "TypeError: Preprocessor.__init__() got an unexpected keyword argument 'seed'"
+  }
 }

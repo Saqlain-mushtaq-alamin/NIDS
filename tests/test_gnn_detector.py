@@ -282,3 +282,40 @@ class TestSplitWindows:
         a, _ = split_windows(records, seed=7)
         b, _ = split_windows(records, seed=7)
         assert [r.window_id for r in a] == [r.window_id for r in b]
+
+
+class TestDegreeLogisticBaseline:
+    """Tests for the degree-only logistic regression baseline."""
+
+    def test_featurize_and_fit(self, records):
+        from src.models.gnn_detector import DegreeLogisticBaseline
+        baseline = DegreeLogisticBaseline(seed=42)
+        X = baseline.featurize(records[:10])
+        assert X.shape == (10, 5)
+        assert np.all(np.isfinite(X))
+
+        baseline.fit(records[:12])
+        probs = baseline.predict_proba(records[12:16])
+        assert probs.shape == (4, 2)
+        assert np.allclose(probs.sum(axis=1), 1.0)
+
+        metrics = baseline.evaluate(records[12:16])
+        assert "accuracy" in metrics
+        assert "f1" in metrics
+
+
+class TestEndToEndLatencyAccounting:
+    """Tests for end-to-end latency and 60-second window delay accounting."""
+
+    def test_benchmark_end_to_end_latency_accounting(self, records, simulated):
+        from src.models.gnn_detector import HostCommGraph, WindowGNNClassifier
+        clf = WindowGNNClassifier(epochs=2, seed=0).fit(records[:6])
+        builder = HostCommGraph(window_seconds=60)
+        report = clf.benchmark_end_to_end_latency(builder, simulated.head(50), n_iterations=10)
+
+        assert report["window_delay_seconds"] == 60.0
+        assert "feature_extraction_ms" in report
+        assert "graph_build_ms" in report
+        assert "inference_cpu_ms" in report
+        assert "end_to_end_latency_ms" in report
+        assert report["end_to_end_latency_ms"] < 35.0
