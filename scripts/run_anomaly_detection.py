@@ -58,27 +58,26 @@ def run_seed(primary_df: pd.DataFrame, secondary_df: pd.DataFrame,
     )
     preprocessor.fit(train_benign_df)
 
-    train_X = preprocessor.transform(train_df)
-    train_y = train_df["label"].to_numpy()
-    val_X = preprocessor.transform(val_df)
-    val_y = val_df["label"].to_numpy()
-    test_X = preprocessor.transform(test_df)
-    test_y = test_df["label"].to_numpy()
+    train_X, train_y = preprocessor.transform(train_df)
+    val_X, val_y = preprocessor.transform(val_df)
+    test_X, test_y = preprocessor.transform(test_df)
 
     val_benign_mask = pd.Series(val_y).astype(str).str.strip().str.lower() == BENIGN_LABEL.lower()
-    val_benign_X = val_X[val_benign_mask]
+    val_benign_X = val_X[val_benign_mask.to_numpy()]
+    train_benign_mask_arr = train_df["label"].astype(str).str.strip().str.lower() == BENIGN_LABEL.lower()
+    train_benign_X = train_X[train_benign_mask_arr.to_numpy()]
 
     # 1. Train Autoencoder on benign rows only
     detector = AnomalyDetector(
         latent_dim=latent_dim, epochs=epochs, percentile=percentile, seed=seed
     )
-    detector.fit(train_X[train_benign_mask], X_val=val_X, y_val=val_y)
+    detector.fit(train_benign_X, X_val=val_X, y_val=val_y)
 
     # 2. Fit Baselines on benign rows only
     baselines = BaselineAnomalyModels(
         latent_dim=latent_dim, percentile=percentile, seed=seed
     )
-    baselines.fit(train_X[train_benign_mask], val_benign_X)
+    baselines.fit(train_benign_X, val_benign_X)
 
     # 3. Evaluate at full test set and realistic attack prevalences (1%, 5%, 10%)
     prevalences = (0.01, 0.05, 0.10)
@@ -120,8 +119,7 @@ def run_seed(primary_df: pd.DataFrame, secondary_df: pd.DataFrame,
     shared_features = sorted(cic_cols & unsw_features)
 
     # Transform secondary with the primary benign-fitted preprocessor
-    cross_X = preprocessor.transform(secondary_df)
-    cross_y = secondary_df["label"].to_numpy()
+    cross_X, cross_y = preprocessor.transform(secondary_df)
     ae_cross = detector.evaluate_cross_dataset(cross_X, cross_y, dataset="unsw-nb15")
     base_cross = baselines.evaluate(cross_X, cross_y)
 
