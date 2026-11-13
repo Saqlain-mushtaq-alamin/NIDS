@@ -88,7 +88,7 @@ def run_fusion(quick: bool, seed: int = 42, **_) -> dict:
     n_split = max(int(len(X_benign) * 0.8), 10)
     X_tr, X_val = X_benign[:n_split], X_benign[n_split:]
     ae = AnomalyDetector(latent_dim=8, epochs=15 if quick else 30, seed=seed, percentile=99.0)
-    ae.fit(X_tr, X_val=X_val)
+    ae.fit(X_tr, y=["Benign"] * len(X_tr), X_val=X_val, y_val=["Benign"] * len(X_val))
 
     # Calibrator on benign validation errors
     val_errors = ae.reconstruction_error(X_val)
