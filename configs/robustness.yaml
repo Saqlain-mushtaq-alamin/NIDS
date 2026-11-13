@@ -2,10 +2,11 @@
 
 project:
   name: "NIDS-Phase5-AdversarialRobustness"
-  version: "0.1.0"
+  version: "0.2.0"
 
 reproducibility:
   global_seed: 42
+  seeds: [42, 123, 456, 789, 1024]
 
 attacks:
   epsilons: [0.01, 0.05, 0.1, 0.2, 0.5]
@@ -22,12 +23,12 @@ defense:
   learning_rate: 0.001
   hidden_dims: [64, 32]
   dropout: 0.1
+  pgd_steps: 7
+  random_start: true
 
 evaluation:
   models: ["xgboost", "dnn"]
   primary_dataset: "cic-ids-2017"
   secondary_dataset: "unsw-nb15"
   benign_label: "Benign"
-  literature_targets:
-    defense_accuracy_gain: 0.35   # arXiv:2502.15561 target +35%
-    defense_fpr_reduction: 0.125  # arXiv:2502.15561 target -12.5%
+  min_flows: 500

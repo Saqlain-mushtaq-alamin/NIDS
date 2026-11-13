@@ -111,12 +111,17 @@ class DNNBaseline:
         adversarial_attacker: Optional[object] = None,
         adv_epsilon: float = 0.1,
         adv_ratio: float = 0.5,
+        adv_method: str = "pgd",
+        pgd_steps: int = 7,
+        pgd_step_size: Optional[float] = None,
+        random_start: bool = True,
     ) -> "DNNBaseline":
         """
         Fit model on training data.
 
         If `adversarial_attacker` is provided and `adv_ratio > 0`, performs adversarial
         training by perturbing `adv_ratio` fraction of each mini-batch using the attacker.
+        Supports both single-step FGSM and multi-step PGD adversarial training.
         """
         torch.manual_seed(self.random_state)
         np.random.seed(self.random_state)
@@ -172,7 +177,17 @@ class DNNBaseline:
                         self.model_.eval()
                         X_sub = X_b[:n_adv]
                         y_sub = y_b[:n_adv]
-                        if hasattr(adversarial_attacker, "fgsm"):
+                        if adv_method.lower().startswith("pgd") and hasattr(adversarial_attacker, "pgd"):
+                            X_adv = adversarial_attacker.pgd(
+                                self.model_,
+                                X_sub,
+                                y_sub,
+                                epsilon=adv_epsilon,
+                                steps=pgd_steps,
+                                step_size=pgd_step_size,
+                                random_start=random_start,
+                            )
+                        elif hasattr(adversarial_attacker, "fgsm"):
                             X_adv = adversarial_attacker.fgsm(
                                 self.model_, X_sub, y_sub, epsilon=adv_epsilon
                             )

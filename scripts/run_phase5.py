@@ -2,13 +2,20 @@
 scripts/run_phase5.py — Phase 5 Adversarial Robustness Testing Experiment Driver.
 
 Executes:
-1. Attack implementations: FGSM and PGD with feature-space physical constraints (Section 5.1).
-2. Epsilon sweeps (ε ∈ {0.01, 0.05, 0.1, 0.2, 0.5}) across undefended baseline models (Section 5.2.1).
-3. Adversarial training (50% clean + 50% FGSM-perturbed examples) (Section 5.2.2).
-4. Defended model evaluation under attack (Section 5.2.3).
-5. Defense improvement computation vs literature benchmark (+35% ACC, -12.5% FPR, arXiv:2502.15561) (Section 5.2.4).
-6. Cross-dataset adversarial evaluation to measure out-of-domain transfer impact (Section 5.2.5).
-7. Honest framing report generation per §3.4 and §6 of the research proposal (Section 5.3).
+1. Feature-space attacks (FGSM, PGD-10) with physical constraints and per-feature scaled bounds.
+2. Threat model enforcement:
+   - Perturb ONLY attack flows (benign flows unperturbed).
+   - Manipulate only attacker-controllable features (forward packets, delays, duration).
+   - Monotonicity / directional bounds (delays/lengths/counts >= 0).
+   - Integer rounding for discrete counts in raw space.
+   - Goal = evasion into Benign class; metrics = evasion rate and detection rate under attack.
+3. Controls:
+   - Random noise of equal magnitude.
+   - Query-based black-box attack for tree models in addition to surrogate transfer.
+4. Multi-step PGD adversarial training (PGD-7 with random start) alongside FGSM training.
+5. Empirical gradient masking verification (only claimed if supported by evidence).
+6. Guards: aborts if clean model is constant classifier or if test set has < 500 attack or < 500 benign flows.
+7. Generates honest scientific report with flagged citations for manual verification.
 
 Usage:
     python scripts/run_phase5.py
@@ -36,7 +43,9 @@ from src.data.loader import load_dataset
 from src.data.preprocessor import Preprocessor
 from src.evaluation.robustness import (
     FeatureSpaceAttacker,
+    check_gradient_masking,
     compute_defense_improvement,
+    compute_robustness_metrics,
     evaluate_cross_dataset_robustness,
     format_results_markdown_table,
     run_epsilon_sweep,
@@ -78,7 +87,7 @@ def main(argv=None) -> int:
     logger = setup_logger("NIDS-Phase5-Robustness")
 
     logger.info("=" * 72)
-    logger.info("Phase 5 — Adversarial Robustness Testing")
+    logger.info("Phase 5 — Adversarial Robustness & Threat Model Evaluation")
     logger.info("=" * 72)
 
     # 1. Config & Seeding
@@ -91,8 +100,10 @@ def main(argv=None) -> int:
     if args.quick:
         epsilons = [0.01, 0.1, 0.5]
         dnn_epochs = 10
+        min_flows = 0
     else:
         dnn_epochs = getattr(cfg.defense, "epochs", 20)
+        min_flows = getattr(cfg.evaluation, "min_flows", 500)
 
     output_dir = _PROJECT_ROOT / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -116,24 +127,37 @@ def main(argv=None) -> int:
     # Transform secondary dataset with fitted preprocessor
     X_unsw, y_unsw = prep.transform(df_unsw)
 
-    # Align labels to common binary taxonomy ("Benign" vs "Attack") for cross-dataset evaluation
+    # Align labels to common binary taxonomy ("Benign" vs "Attack")
     y_train = np.where(y_train == "Benign", "Benign", "Attack")
     y_test = np.where(y_test == "Benign", "Benign", "Attack")
     y_unsw = np.where(np.isin(y_unsw, ["Benign", "Normal"]), "Benign", "Attack")
 
+    n_test_attacks = int(np.sum(y_test == "Attack"))
+    n_test_benign = int(np.sum(y_test == "Benign"))
     logger.info(f"  Train: X={X_train.shape}, y={len(y_train)}")
-    logger.info(f"  Test:  X={X_test.shape}, y={len(y_test)}")
+    logger.info(f"  Test:  X={X_test.shape}, y={len(y_test)} ({n_test_attacks} attacks, {n_test_benign} benign)")
     logger.info(f"  Target (UNSW): X={X_unsw.shape}, y={len(y_unsw)}")
 
+    # Guard: Check minimum sample size for scientific validity
+    if min_flows > 0 and (n_test_attacks < min_flows or n_test_benign < min_flows):
+        raise ValueError(
+            f"Evaluation aborted: test set must have >= {min_flows} attack flows and "
+            f">= {min_flows} benign flows (got {n_test_attacks} attacks, {n_test_benign} benign)."
+        )
+
+    # Initialize Attacker with fitted scaler and feature names
+    attacker = FeatureSpaceAttacker(
+        enforce_constraints=True,
+        scaler=prep.scaler_,
+        feature_names=prep.feature_names_,
+        directional=True,
+    )
+
     # 3. Model Training
-    logger.info("\n[Step 2/6] Training Baseline Undefended Models...")
-    # XGBoost Baseline
+    logger.info("\n[Step 2/6] Training Baseline Models...")
     xgb_model = XGBBaseline(n_estimators=100, max_depth=6, random_state=seed)
     xgb_model.fit(X_train, y_train)
-    xgb_clean_acc = float(np.mean(y_test == xgb_model.predict(X_test)))
-    logger.info(f"  XGBoost Baseline fitted -- Clean Test ACC: {xgb_clean_acc:.4f}")
 
-    # Undefended DNN Baseline
     dnn_undefended = DNNBaseline(
         hidden_dims=(64, 32),
         epochs=dnn_epochs,
@@ -142,41 +166,68 @@ def main(argv=None) -> int:
         random_state=seed,
     )
     dnn_undefended.fit(X_train, y_train)
-    dnn_clean_acc = float(np.mean(y_test == dnn_undefended.predict(X_test)))
-    logger.info(f"  DNN (Undefended) fitted -- Clean Test ACC: {dnn_clean_acc:.4f}")
 
-    # 4. Adversarial Training (Defended Model)
-    logger.info("\n[Step 3/6] Implementing Adversarial Training (Section 5.2.2)...")
-    attacker = FeatureSpaceAttacker(enforce_constraints=True, min_val=0.0)
+    # Guard: Constant classifier check
+    for m_name, m_obj in [("XGBoost", xgb_model), ("DNN (Undefended)", dnn_undefended)]:
+        preds = m_obj.predict(X_test)
+        if len(np.unique(preds)) <= 1:
+            raise ValueError(f"Clean model '{m_name}' is a constant classifier (predicts {np.unique(preds)[0]}).")
+
+    xgb_clean_metrics = compute_robustness_metrics(y_test, xgb_model.predict(X_test))
+    dnn_clean_metrics = compute_robustness_metrics(y_test, dnn_undefended.predict(X_test))
+    logger.info(f"  XGBoost Baseline fitted -- Clean ACC: {xgb_clean_metrics['accuracy']:.4f}, DetRate: {xgb_clean_metrics['detection_rate']:.4f}")
+    logger.info(f"  DNN (Undefended) fitted -- Clean ACC: {dnn_clean_metrics['accuracy']:.4f}, DetRate: {dnn_clean_metrics['detection_rate']:.4f}")
+
+    # 4. Adversarial Training: FGSM and PGD-7 (Section 5.2.2)
     adv_epsilon = getattr(cfg.defense, "epsilon", 0.1)
     adv_ratio = getattr(cfg.defense, "adv_ratio", 0.5)
 
-    dnn_defended = DNNBaseline(
+    logger.info(f"\n[Step 3/6] Implementing Adversarial Training (FGSM and PGD-7, eps={adv_epsilon})...")
+    # 4a. FGSM Adversarial Training
+    dnn_fgsm = DNNBaseline(
         hidden_dims=(64, 32),
         epochs=dnn_epochs,
         batch_size=64,
         learning_rate=0.001,
         random_state=seed,
     )
-    dnn_defended.fit(
+    dnn_fgsm.fit(
         X_train,
         y_train,
         adversarial_attacker=attacker,
         adv_epsilon=adv_epsilon,
         adv_ratio=adv_ratio,
+        adv_method="fgsm",
     )
-    dnn_def_clean_acc = float(np.mean(y_test == dnn_defended.predict(X_test)))
-    logger.info(
-        f"  DNN (Adversarially Trained) fitted -- Clean Test ACC: {dnn_def_clean_acc:.4f} "
-        f"(ratio={adv_ratio * 100:.0f}% adv, eps={adv_epsilon})"
+    dnn_fgsm_metrics = compute_robustness_metrics(y_test, dnn_fgsm.predict(X_test))
+    logger.info(f"  DNN (FGSM-Trained) -- Clean ACC: {dnn_fgsm_metrics['accuracy']:.4f}, DetRate: {dnn_fgsm_metrics['detection_rate']:.4f}")
+
+    # 4b. Multi-step PGD-7 Adversarial Training
+    dnn_pgd = DNNBaseline(
+        hidden_dims=(64, 32),
+        epochs=dnn_epochs,
+        batch_size=64,
+        learning_rate=0.001,
+        random_state=seed,
     )
+    dnn_pgd.fit(
+        X_train,
+        y_train,
+        adversarial_attacker=attacker,
+        adv_epsilon=adv_epsilon,
+        adv_ratio=adv_ratio,
+        adv_method="pgd",
+        pgd_steps=7,
+        random_start=True,
+    )
+    dnn_pgd_metrics = compute_robustness_metrics(y_test, dnn_pgd.predict(X_test))
+    logger.info(f"  DNN (PGD-7-Trained) -- Clean ACC: {dnn_pgd_metrics['accuracy']:.4f}, DetRate: {dnn_pgd_metrics['detection_rate']:.4f}")
 
-    # 5. Epsilon Sweeps (Section 5.1.5, 5.2.1, 5.2.3)
-    logger.info("\n[Step 4/6] Running Epsilon Sweeps (FGSM & PGD-10)...")
-    logger.info(f"  Sweeping eps in {epsilons}")
+    # 5. Epsilon Sweeps with Controls (FGSM, PGD-10, Random Noise, Query-based Black-box)
+    logger.info("\n[Step 4/6] Running Epsilon Sweeps across Models and Attack Types...")
 
-    # XGBoost sweep via DNN surrogate transfer attack
-    logger.info("  Evaluating XGBoost (no defense) via surrogate transfer attack...")
+    # 5a. XGBoost (Surrogate Transfer and Query-Based Black-Box)
+    logger.info("  Evaluating XGBoost (no defense) via surrogate transfer and query-based black-box...")
     sweep_xgb = run_epsilon_sweep(
         model=xgb_model,
         X_test=X_test,
@@ -189,10 +240,13 @@ def main(argv=None) -> int:
         model_name="XGBoost",
         defense_name="no defense",
         pgd_steps=10,
+        include_random_control=True,
+        include_query_blackbox=True,
+        min_flows=min_flows,
     )
 
-    # Undefended DNN sweep
-    logger.info("  Evaluating DNN (no defense) white-box attack...")
+    # 5b. Undefended DNN
+    logger.info("  Evaluating DNN (no defense) white-box...")
     sweep_dnn_base = run_epsilon_sweep(
         model=dnn_undefended,
         X_test=X_test,
@@ -204,12 +258,14 @@ def main(argv=None) -> int:
         model_name="DNN",
         defense_name="no defense",
         pgd_steps=10,
+        include_random_control=True,
+        min_flows=min_flows,
     )
 
-    # Defended DNN sweep
-    logger.info("  Evaluating DNN (adv-trained) white-box attack...")
-    sweep_dnn_def = run_epsilon_sweep(
-        model=dnn_defended,
+    # 5c. FGSM-Defended DNN
+    logger.info("  Evaluating DNN (FGSM-trained) white-box...")
+    sweep_dnn_fgsm = run_epsilon_sweep(
+        model=dnn_fgsm,
         X_test=X_test,
         y_test=y_test,
         attacker=attacker,
@@ -217,38 +273,73 @@ def main(argv=None) -> int:
         attack_types=["fgsm", "pgd"],
         benign_label="Benign",
         model_name="DNN",
-        defense_name="adv-trained",
+        defense_name="FGSM-trained",
         pgd_steps=10,
+        include_random_control=True,
+        min_flows=min_flows,
     )
 
-    # Combine into single Results Table DataFrame
-    combined_results_df = pd.concat([sweep_xgb, sweep_dnn_base, sweep_dnn_def], ignore_index=True)
+    # 5d. PGD-7-Defended DNN
+    logger.info("  Evaluating DNN (PGD-7-trained) white-box...")
+    sweep_dnn_pgd = run_epsilon_sweep(
+        model=dnn_pgd,
+        X_test=X_test,
+        y_test=y_test,
+        attacker=attacker,
+        epsilons=epsilons,
+        attack_types=["fgsm", "pgd"],
+        benign_label="Benign",
+        model_name="DNN",
+        defense_name="PGD-7-trained",
+        pgd_steps=10,
+        include_random_control=True,
+        min_flows=min_flows,
+    )
+
+    combined_results_df = pd.concat(
+        [sweep_xgb, sweep_dnn_base, sweep_dnn_fgsm, sweep_dnn_pgd], ignore_index=True
+    )
     table_csv_path = output_dir / "robustness_sweep.csv"
     combined_results_df.to_csv(table_csv_path, index=False)
-    logger.info(f"  Saved full epsilon sweep to: {table_csv_path}")
+    logger.info(f"  Saved full robustness sweep table to: {table_csv_path}")
 
-    # 6. Defense Improvement Computation (Section 5.2.4)
-    logger.info("\n[Step 5/6] Computing Defense Improvements (Section 5.2.4)...")
-    improvement_fgsm = compute_defense_improvement(
-        sweep_dnn_base, sweep_dnn_def, target_epsilon=adv_epsilon, attack_type="FGSM"
+    # 6. Gradient Masking Verification
+    logger.info("\n[Step 5/6] Verifying Gradient Masking Evidence...")
+    # Evaluate transfer attack from XGBoost surrogate vs white-box
+    dnn_pgd_wb_subset = sweep_dnn_pgd[
+        (np.isclose(sweep_dnn_pgd["ε"], adv_epsilon)) & (sweep_dnn_pgd["Attack"].str.startswith("PGD"))
+    ]
+    wb_evasion = float(dnn_pgd_wb_subset["Evasion Rate"].iloc[0]) if not dnn_pgd_wb_subset.empty else 0.0
+
+    # Transfer attack from undefended surrogate against PGD-defended model
+    transfer_res = attacker.transfer_attack(
+        surrogate_model=dnn_undefended.torch_model_,
+        target_model=dnn_pgd,
+        X=X_test,
+        y=y_test,
+        attack="pgd",
+        epsilon=adv_epsilon,
+        steps=10,
+        benign_label="Benign",
     )
-    improvement_pgd = compute_defense_improvement(
-        sweep_dnn_base, sweep_dnn_def, target_epsilon=adv_epsilon, attack_type="PGD-10"
+    bb_transfer_evasion = transfer_res["adv_evasion_rate"]
+    masking_eval = check_gradient_masking(whitebox_evasion=wb_evasion, blackbox_evasion=bb_transfer_evasion)
+    logger.info(f"  White-box PGD Evasion: {wb_evasion:.4f} | Black-box Transfer Evasion: {bb_transfer_evasion:.4f}")
+    logger.info(f"  {masking_eval['evidence']}")
+
+    # Defense improvement metrics
+    imp_fgsm_vs_base = compute_defense_improvement(
+        sweep_dnn_base, sweep_dnn_fgsm, target_epsilon=adv_epsilon, attack_type="FGSM"
     )
-    logger.info(
-        f"  FGSM eps={adv_epsilon}: Delta Detection ACC = {improvement_fgsm['defense_acc_gain_pct']:+.2f}%, "
-        f"FPR Reduction = {improvement_fgsm['defense_fpr_reduction_pct']:+.2f}%"
-    )
-    logger.info(
-        f"  PGD-10 eps={adv_epsilon}: Delta Detection ACC = {improvement_pgd['defense_acc_gain_pct']:+.2f}%, "
-        f"FPR Reduction = {improvement_pgd['defense_fpr_reduction_pct']:+.2f}%"
+    imp_pgd_vs_base = compute_defense_improvement(
+        sweep_dnn_base, sweep_dnn_pgd, target_epsilon=adv_epsilon, attack_type="PGD-10"
     )
 
-    # 7. Cross-Dataset Adversarial Evaluation (Section 5.2.5)
-    logger.info("\n[Step 6/6] Evaluating Cross-Dataset Impact of Adversarial Training...")
-    cross_results = evaluate_cross_dataset_robustness(
+    # 7. Cross-Dataset Adversarial Evaluation
+    logger.info("\n[Step 6/6] Evaluating Cross-Dataset Impact of Defenses...")
+    cross_results_pgd = evaluate_cross_dataset_robustness(
         baseline_model=dnn_undefended,
-        defended_model=dnn_defended,
+        defended_model=dnn_pgd,
         X_source=X_test,
         y_source=y_test,
         X_target=X_unsw,
@@ -257,52 +348,44 @@ def main(argv=None) -> int:
         epsilon=adv_epsilon,
         benign_label="Benign",
     )
-    logger.info(
-        f"  In-Domain Clean ACC: Baseline={cross_results['source_in_domain']['baseline_clean_acc']:.4f}, "
-        f"Defended={cross_results['source_in_domain']['defended_clean_acc']:.4f}"
-    )
-    logger.info(
-        f"  Cross-Domain Clean ACC: Baseline={cross_results['target_cross_domain']['baseline_clean_acc']:.4f}, "
-        f"Defended={cross_results['target_cross_domain']['defended_clean_acc']:.4f} "
-        f"(Delta={cross_results['target_cross_domain']['cross_clean_acc_change']:+.4f})"
-    )
 
-    # Save summary JSON
     summary_data = {
         "dataset_source": cfg.evaluation.primary_dataset,
         "dataset_target": cfg.evaluation.secondary_dataset,
         "defense_epsilon": adv_epsilon,
         "defense_ratio": adv_ratio,
         "defense_improvements": {
-            "fgsm": improvement_fgsm,
-            "pgd": improvement_pgd,
+            "fgsm_defense": imp_fgsm_vs_base,
+            "pgd_defense": imp_pgd_vs_base,
         },
-        "cross_dataset_impact": cross_results,
+        "gradient_masking_check": masking_eval,
+        "cross_dataset_impact": cross_results_pgd,
+        "citation_verification_notes": [
+            "[MANUAL CITATION VERIFICATION REQUIRED] arXiv:2306.05494: verify black-box evasion claims.",
+            "[MANUAL CITATION VERIFICATION REQUIRED] arXiv:2502.15561: verify empirical adversarial training gains.",
+        ],
     }
     summary_json_path = output_dir / "robustness_summary.json"
     with open(summary_json_path, "w", encoding="utf-8") as f:
         json.dump(summary_data, f, indent=2)
     logger.info(f"  Saved summary metrics to: {summary_json_path}")
 
-    # Generate Markdown Report (Section 5.3)
-    logger.info("\nGenerating Phase 5 Robustness Report with Honest Framing (Section 5.3)...")
     report_md = _generate_report_markdown(
-        combined_results_df, improvement_fgsm, improvement_pgd, cross_results
+        combined_results_df,
+        imp_fgsm_vs_base,
+        imp_pgd_vs_base,
+        cross_results_pgd,
+        masking_eval,
     )
     report_path = output_dir / "robustness_report.md"
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(report_md)
-    logger.info(f"  Saved human-readable report to: {report_path}")
+    logger.info(f"  Saved report to: {report_path}")
 
-    # Print markdown results table to log
     logger.info("\n" + "=" * 72)
     logger.info("PHASE 5 RESULTS TABLE")
     logger.info("=" * 72)
-    try:
-        print(format_results_markdown_table(combined_results_df))
-    except Exception:
-        print(format_results_markdown_table(combined_results_df).encode("ascii", "replace").decode("ascii"))
-
+    print(format_results_markdown_table(combined_results_df))
     logger.info("\nPhase 5 execution finished successfully.")
     return 0
 
@@ -312,64 +395,65 @@ def _generate_report_markdown(
     imp_fgsm: dict,
     imp_pgd: dict,
     cross_results: dict,
+    masking_eval: dict,
 ) -> str:
     md_table = format_results_markdown_table(df)
 
-    content = f"""# Phase 5 — Adversarial Robustness Evaluation Report
+    content = f"""# Phase 5 — Adversarial Robustness & Threat Model Report
 
 **Generated by:** `scripts/run_phase5.py`  
-**Evaluation Scope:** Feature-space adversarial robustness & adversarial training impact.
+**Threat Model:** Endpoint attacker manipulating strictly controllable forward traffic & delays to evade into `Benign`.
 
 ---
 
 > [!WARNING]
-> ### Critical Scope Framing (per §3.4 and §6 of the Research Proposal)
+> ### Critical Scope & Scientific Framing Notice
 > **Do NOT claim general adversarial robustness based on feature-space FGSM/PGD testing.**  
-> The 2026 literature survey on ML-NIDS explicitly warns that feature-space perturbations do not translate directly to realizable network traffic without violating protocol syntax or physical link constraints. All results in this report represent **feature-space model sensitivity evaluations**, not problem-space evasion resilience. Problem-space (packet-level) evasion attacks are explicitly out of scope.
+> Flow feature perturbations (e.g. modifying mathematical averages of packet length or IAT) do not translate directly into valid, routable IP packet streams without risking TCP stack corruption. All results represent **feature-space sensitivity and worst-case mathematical bounds**, not verified physical packet evasion.
 
 ---
 
-## 1. Adversarial Evaluation Results
+## 1. Adversarial Evaluation Table
 
 {md_table}
 
 ---
 
-## 2. Defense Improvement vs Literature Target
+## 2. Adversarial Training Comparison (FGSM vs PGD-7)
 
-- **Literature Target (arXiv:2502.15561):** +35.0% Detection Accuracy, -12.5% False Positive Rate under attack.
-- **Observed FGSM (ε={imp_fgsm['epsilon']}):**
-  - Baseline Adv ACC: `{imp_fgsm['baseline_adv_acc']:.4f}` → Defended Adv ACC: `{imp_fgsm['defended_adv_acc']:.4f}` (**{imp_fgsm['defense_acc_gain_pct']:+.2f}%**)
-  - Baseline Adv FPR: `{imp_fgsm['baseline_adv_fpr']:.4f}` → Defended Adv FPR: `{imp_fgsm['defended_adv_fpr']:.4f}` (**{imp_fgsm['defense_fpr_reduction_pct']:+.2f}% reduction**)
-- **Observed PGD-10 (ε={imp_pgd['epsilon']}):**
-  - Baseline Adv ACC: `{imp_pgd['baseline_adv_acc']:.4f}` → Defended Adv ACC: `{imp_pgd['defended_adv_acc']:.4f}` (**{imp_pgd['defense_acc_gain_pct']:+.2f}%**)
-  - Baseline Adv FPR: `{imp_pgd['baseline_adv_fpr']:.4f}` → Defended Adv FPR: `{imp_pgd['defended_adv_fpr']:.4f}` (**{imp_pgd['defense_fpr_reduction_pct']:+.2f}% reduction**)
+- **Observed FGSM Training Impact (ε={imp_fgsm['epsilon']}):**
+  - Baseline Adv ACC: `{imp_fgsm['baseline_adv_acc']:.4f}` → Defended Adv ACC: `{imp_fgsm['defended_adv_acc']:.4f}` (**Δ ACC: {imp_fgsm['defense_acc_gain']:+.4f}**)
+  - Baseline Evasion Rate: `{imp_fgsm['baseline_evasion_rate']:.4f}` → Defended Evasion Rate: `{imp_fgsm['defended_evasion_rate']:.4f}` (**Δ Evasion: {imp_fgsm['evasion_reduction']:+.4f}**)
+- **Observed PGD-7 Training Impact (ε={imp_pgd['epsilon']}):**
+  - Baseline Adv ACC: `{imp_pgd['baseline_adv_acc']:.4f}` → Defended Adv ACC: `{imp_pgd['defended_adv_acc']:.4f}` (**Δ ACC: {imp_pgd['defense_acc_gain']:+.4f}**)
+  - Baseline Evasion Rate: `{imp_pgd['baseline_evasion_rate']:.4f}` → Defended Evasion Rate: `{imp_pgd['defended_evasion_rate']:.4f}` (**Δ Evasion: {imp_pgd['evasion_reduction']:+.4f}**)
 
 ---
 
-## 3. Cross-Dataset Generalization Impact (Section 5.2.5)
+## 3. Gradient Masking Verification
+
+- **White-Box PGD-10 Evasion Rate:** `{masking_eval['whitebox_evasion']:.4f}`
+- **Black-Box Transfer Evasion Rate:** `{masking_eval['blackbox_evasion']:.4f}`
+- **Evidence Verdict:** {masking_eval['evidence']}
+- **Scientific Standard:** Gradient masking is only claimed when black-box/transfer attacks succeed where white-box attacks fail due to shattered or vanished gradients.
+
+---
+
+## 4. Cross-Dataset Generalization Impact
 
 - **Source In-Domain Clean ACC:** Baseline = `{cross_results['source_in_domain']['baseline_clean_acc']:.4f}`, Defended = `{cross_results['source_in_domain']['defended_clean_acc']:.4f}`
 - **Target Cross-Domain Clean ACC:** Baseline = `{cross_results['target_cross_domain']['baseline_clean_acc']:.4f}`, Defended = `{cross_results['target_cross_domain']['defended_clean_acc']:.4f}`
 - **Cross-Domain Clean Accuracy Delta:** `{cross_results['target_cross_domain']['cross_clean_acc_change']:+.4f}`
-- **Target Cross-Domain Adversarial ACC:** Baseline = `{cross_results['target_cross_domain']['baseline_adv_acc']:.4f}`, Defended = `{cross_results['target_cross_domain']['defended_adv_acc']:.4f}` (**Δ = {cross_results['target_cross_domain']['defense_gain_cross_domain']:+.4f}**)
+- **Cross-Domain Generalization Gap:** Baseline = `{cross_results['target_cross_domain']['generalization_gap_baseline']:.4f}`, Defended = `{cross_results['target_cross_domain']['generalization_gap_defended']:.4f}`
 
 ---
 
-## 4. Honest Framing & Threat Model Limitations (Section 5.3)
+## 5. Citations for Manual Verification
 
-### 4.1 Feature-Space vs Problem-Space Limitations
-- Tabular flow features (e.g. `Flow Duration`, `Total Fwd Packets`, `Flow Bytes/s`) are mathematical abstractions computed over completed flows. Perturbing a feature like `Total Fwd Packets` by adding non-integer or arbitrarily small noise cannot be realized on wire without emitting actual discrete IP packets.
-- Perturbations that alter duration or byte counters without adding valid payload or padding packets break TCP checksums and flow reconstruction semantics.
-
-### 4.2 Threat Model Assumptions
-- **White-box DNN attacks:** Assumes the adversary possesses exact access to network weights, architecture, normalization statistics, and feature names.
-- **Black-box Tree transfer attacks:** Assumes the adversary can train a surrogate neural network on a representative data distribution and transfer adversarial directions to the deployed decision tree ensemble (arXiv:2306.05494).
-
-### 4.3 Citing the Field's Criticism
-- **arXiv:2306.05494 ("Evasion Adversarial Attacks Remain Impractical Against ML-based NIDS"):** Highlights that black-box evasion often requires access to >50% of the target's training distribution.
-- **arXiv:2502.15561:** Demonstrates defensive adversarial training benefits under controlled feature-space conditions.
-- **2026 Survey:** Demonstrates the persistent problem-space gap in contemporary NIDS literature.
+> [!IMPORTANT]
+> The following citations are explicitly flagged for manual user verification:
+> - **[MANUAL CITATION VERIFICATION REQUIRED]** `arXiv:2306.05494`: "Evasion Adversarial Attacks Remain Impractical Against ML-based Network Intrusion Detection Systems" — verify reported data availability and threat model assumptions.
+> - **[MANUAL CITATION VERIFICATION REQUIRED]** `arXiv:2502.15561`: Feature-space adversarial defense gains — verify applicability to specific datasets and feature representations.
 """
     return content
 
