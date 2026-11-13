@@ -21,11 +21,11 @@
 
 | Pipeline Stage | Measured Latency | Operational Gate / Budget |
 | --- | --- | --- |
-| **Feature Extraction & Aggregation** | 0.05 ms | Sub-millisecond target |
-| **Host-Graph Construction** | 4.82 ms | Real-time batch target |
-| **GNN Inference (CPU)** | 0.54 ms | ≤ 35.0 ms budget |
-| **GNN Inference (GPU)** | 2.79 ms | Optional acceleration |
-| **Total Processing Latency (End-to-End)** | 7.67 ms | Real-time admissible |
+| **Feature Extraction & Aggregation** | 0.04 ms | Sub-millisecond target |
+| **Host-Graph Construction** | 4.54 ms | Real-time batch target |
+| **GNN Inference (CPU)** | 0.48 ms | ≤ 35.0 ms budget |
+| **GNN Inference (GPU)** | 1.25 ms | Optional acceleration |
+| **Total Processing Latency (End-to-End)** | 5.84 ms | Real-time admissible |
 | **Inherent Window Buffer Delay** | **60.0 s** | Fixed batch aggregation window |
 
 > [!NOTE]
