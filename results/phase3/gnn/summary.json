@@ -1,249 +1,41 @@
 {
-  "data_source": "SYNTHETIC (src.data.graph_simulator) \u2014 not a real capture",
+  "dataset_source": "real_cic2017",
   "seeds": [
-    42,
-    1337,
-    2024
+    42
   ],
-  "windows_per_scenario": 40,
-  "gnn_accuracy_mean": 1.0,
+  "n_train_windows": 5387,
+  "n_test_windows": 1796,
+  "gnn_accuracy_mean": 0.8747216035634744,
   "gnn_accuracy_std": 0.0,
-  "baseline_accuracy_mean": 1.0,
-  "baseline_accuracy_std": 0.0,
-  "gnn_outperforms_degree_baseline": false,
-  "latency_budget_ms": 35.0,
-  "latency_within_budget": true,
-  "window_id_overlap": 0,
+  "gnn_f1_mean": 0.8162682739520156,
+  "gnn_f1_std": 0.0,
+  "degree_baseline_accuracy_mean": 0.8747216035634744,
+  "degree_baseline_f1_mean": 0.9331749331749332,
+  "gnn_wins_percentage": 0.0,
+  "latency_end_to_end_ms_mean": 5.873534999932417,
+  "latency_inference_cpu_ms_mean": 0.5264649999617177,
+  "latency_inference_gpu_ms_mean": 1.366764999966108,
+  "window_delay_seconds": 60.0,
+  "budget_ms": 35.0,
   "per_seed": [
     {
       "seed": 42,
-      "n_windows": 160,
-      "n_flows": 13793,
-      "n_train_windows": 120,
-      "n_test_windows": 40,
-      "window_id_overlap": 0,
-      "window_label_counts": {
-        "Infiltration": 80,
-        "Benign": 40,
-        "PortScan": 40
-      },
-      "gnn_metrics": {
-        "accuracy": 1.0,
-        "precision": 1.0,
-        "recall": 1.0,
-        "f1": 1.0,
-        "macro_f1": 1.0,
-        "weighted_f1": 1.0,
-        "mcc": 1.0
-      },
-      "gnn_per_class": [
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 30.0
-        },
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 10.0
-        },
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 1.0
-        },
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 40.0
-        },
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 40.0
-        }
-      ],
-      "baseline": {
-        "name": "degree_logistic_regression",
-        "accuracy": 1.0,
-        "n_features": 22
-      },
-      "latency": {
-        "n_iterations": 200,
-        "batch_size": 1,
-        "n_nodes": 50,
-        "n_edges": 200,
-        "device": "cuda",
-        "mean_ms": 1.2995474999456746,
-        "median_ms": 1.184399999829111,
-        "p95_ms": 1.7620200000237671,
-        "min_ms": 1.0944999999082938,
-        "max_ms": 2.106999999796244,
-        "budget_ms": 35.0,
-        "within_budget": true,
-        "headroom_ms": 33.700452500054325
-      },
-      "notes": []
-    },
-    {
-      "seed": 1337,
-      "n_windows": 160,
-      "n_flows": 13789,
-      "n_train_windows": 120,
-      "n_test_windows": 40,
-      "window_id_overlap": 0,
-      "window_label_counts": {
-        "Infiltration": 80,
-        "Benign": 40,
-        "PortScan": 40
-      },
-      "gnn_metrics": {
-        "accuracy": 1.0,
-        "precision": 1.0,
-        "recall": 1.0,
-        "f1": 1.0,
-        "macro_f1": 1.0,
-        "weighted_f1": 1.0,
-        "mcc": 1.0
-      },
-      "gnn_per_class": [
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 30.0
-        },
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 10.0
-        },
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 1.0
-        },
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 40.0
-        },
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 40.0
-        }
-      ],
-      "baseline": {
-        "name": "degree_logistic_regression",
-        "accuracy": 1.0,
-        "n_features": 22
-      },
-      "latency": {
-        "n_iterations": 200,
-        "batch_size": 1,
-        "n_nodes": 50,
-        "n_edges": 200,
-        "device": "cuda",
-        "mean_ms": 1.2919135000151982,
-        "median_ms": 1.1685499998748128,
-        "p95_ms": 1.7904699999462534,
-        "min_ms": 1.1070000000472646,
-        "max_ms": 2.285099999880913,
-        "budget_ms": 35.0,
-        "within_budget": true,
-        "headroom_ms": 33.7080864999848
-      },
-      "notes": []
-    },
-    {
-      "seed": 2024,
-      "n_windows": 160,
-      "n_flows": 13798,
-      "n_train_windows": 120,
-      "n_test_windows": 40,
-      "window_id_overlap": 0,
-      "window_label_counts": {
-        "Infiltration": 80,
-        "Benign": 40,
-        "PortScan": 40
-      },
-      "gnn_metrics": {
-        "accuracy": 1.0,
-        "precision": 1.0,
-        "recall": 1.0,
-        "f1": 1.0,
-        "macro_f1": 1.0,
-        "weighted_f1": 1.0,
-        "mcc": 1.0
-      },
-      "gnn_per_class": [
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 30.0
-        },
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 10.0
-        },
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 1.0
-        },
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 40.0
-        },
-        {
-          "precision": 1.0,
-          "recall": 1.0,
-          "f1-score": 1.0,
-          "support": 40.0
-        }
-      ],
-      "baseline": {
-        "name": "degree_logistic_regression",
-        "accuracy": 1.0,
-        "n_features": 22
-      },
-      "latency": {
-        "n_iterations": 200,
-        "batch_size": 1,
-        "n_nodes": 50,
-        "n_edges": 200,
-        "device": "cuda",
-        "mean_ms": 1.2742989999924248,
-        "median_ms": 1.1540999998942425,
-        "p95_ms": 1.7827549999537946,
-        "min_ms": 1.0820000002240704,
-        "max_ms": 2.13339999982054,
-        "budget_ms": 35.0,
-        "within_budget": true,
-        "headroom_ms": 33.725701000007575
-      },
-      "notes": []
+      "dataset_source": "real_cic2017",
+      "n_windows": 7183,
+      "n_train_windows": 5387,
+      "n_test_windows": 1796,
+      "gnn_accuracy": 0.8747216035634744,
+      "gnn_f1": 0.8162682739520156,
+      "degree_baseline_accuracy": 0.8747216035634744,
+      "degree_baseline_f1": 0.9331749331749332,
+      "gnn_wins_over_degree_baseline": false,
+      "latency_feature_extraction_ms": 0.04467999997359584,
+      "latency_graph_build_ms": 4.462089999992713,
+      "latency_inference_cpu_ms": 0.5264649999617177,
+      "latency_inference_gpu_ms": 1.366764999966108,
+      "latency_end_to_end_ms": 5.873534999932417,
+      "window_delay_seconds": 60.0,
+      "meets_latency_budget": true
     }
-  ],
-  "limitations": [
-    "The four scenarios are synthetic and structurally distinct, so the task is easier than real network traffic.",
-    "A degree-only logistic regression reaches comparable accuracy, so this experiment does NOT demonstrate that the GNN adds value over a simple graph-statistics baseline.",
-    "Results validate that the pipeline runs and the gates are met; they are not a performance claim about real-world detection."
   ]
 }

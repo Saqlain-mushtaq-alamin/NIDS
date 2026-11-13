@@ -1,0 +1,2 @@
+seed,dataset_source,n_windows,n_train_windows,n_test_windows,gnn_accuracy,gnn_f1,degree_baseline_accuracy,degree_baseline_f1,gnn_wins_over_degree_baseline,latency_feature_extraction_ms,latency_graph_build_ms,latency_inference_cpu_ms,latency_inference_gpu_ms,latency_end_to_end_ms,window_delay_seconds,meets_latency_budget
+42,real_cic2017,7183,5387,1796,0.8747216035634744,0.8162682739520156,0.8747216035634744,0.9331749331749332,False,0.04467999997359584,4.462089999992713,0.5264649999617177,1.366764999966108,5.873534999932417,60.0,True
