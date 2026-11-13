@@ -144,7 +144,7 @@ class TestAnomalyDetector:
             df, feature_mode="behavior_only", epochs=5, seed=42
         )
         assert detector._fitted
-        assert preprocessor.is_fitted
+        assert preprocessor._fitted
 
 
 class TestBaselineAnomalyModels:
