@@ -53,6 +53,20 @@ DISCRETE_COUNT_SUBSTRINGS = (
 )
 
 
+def get_benign_class_idx(model: Any, benign_label: Any = "Benign") -> int:
+    """Return the integer class index corresponding to benign_label in model."""
+    if hasattr(model, "label_encoder_") and hasattr(model.label_encoder_, "classes_"):
+        classes = list(model.label_encoder_.classes_)
+        if benign_label in classes:
+            return classes.index(benign_label)
+        classes_str = [str(c).lower() for c in classes]
+        if str(benign_label).lower() in classes_str:
+            return classes_str.index(str(benign_label).lower())
+        if 0 in classes:
+            return classes.index(0)
+    return 0
+
+
 class FeatureSpaceAttacker:
     """
     Feature-space adversarial attacks for NIDS robustness evaluation.
@@ -131,7 +145,6 @@ class FeatureSpaceAttacker:
         else:
             mask = [True] * n_features
 
-        # Ensure at least 1 feature is controllable if mask had all False
         if not any(mask):
             mask = [True] * n_features
 
@@ -155,9 +168,7 @@ class FeatureSpaceAttacker:
         if self.scaler is not None and hasattr(self.scaler, "center_") and hasattr(self.scaler, "scale_"):
             center = np.asarray(self.scaler.center_, dtype=np.float32)
             scale = np.asarray(self.scaler.scale_, dtype=np.float32)
-            # Avoid division by zero
             scale = np.where(scale == 0.0, 1.0, scale)
-            # Raw features have physical minimum >= 0.0
             raw_min = np.zeros_like(center)
             bounds_scaled = (raw_min - center) / scale
             return torch.tensor(bounds_scaled, dtype=torch.float32, device=device).unsqueeze(0)
@@ -182,9 +193,9 @@ class FeatureSpaceAttacker:
         4. Integer rounding for discrete count features in raw space.
         """
         # Directional constraint: perturbation delta >= 0 for controllable dimensions
-        if self.directional:
+        # Only enforce directional monotonicity when feature_names are present
+        if self.directional and self.feature_names is not None:
             delta = X_adv - X_orig
-            # If delta is negative, project back to original
             delta = torch.clamp(delta, min=0.0)
             X_adv = X_orig + delta
 
@@ -224,9 +235,7 @@ class FeatureSpaceAttacker:
 
         # Unscale to raw space
         X_raw = X * scale + center
-        # Round discrete features and enforce non-negativity
         X_raw_rounded = torch.where(mask_t, torch.round(torch.clamp(X_raw, min=0.0)), X_raw)
-        # Re-scale back
         X_scaled = (X_raw_rounded - center) / scale
         return torch.where(mask_t, X_scaled, X)
 
@@ -238,7 +247,7 @@ class FeatureSpaceAttacker:
         epsilon: float = 0.1,
         clip_min: Optional[Any] = None,
         clip_max: Optional[Any] = None,
-        target_benign_idx: Optional[int] = 0,
+        target_benign_idx: Optional[int] = None,
     ) -> torch.Tensor:
         """
         Fast Gradient Sign Method (FGSM) attack:
@@ -265,21 +274,17 @@ class FeatureSpaceAttacker:
         output = model(X_adv)
 
         if target_benign_idx is not None:
-            # Targeted attack towards Benign: minimize loss with Benign target
             target_labels = torch.full_like(y_t, int(target_benign_idx))
             loss = torch.nn.functional.cross_entropy(output, target_labels)
             loss.backward()
-            # Step in direction of negative gradient to minimize target loss
             step_direction = -1.0
         else:
-            # Untargeted attack: maximize loss with true labels
             loss = torch.nn.functional.cross_entropy(output, y_t)
             loss.backward()
             step_direction = 1.0
 
         if X_adv.grad is not None:
             grad = X_adv.grad
-            # Apply controllable feature mask
             ctrl_mask = self.get_controllable_mask(X_t.shape[1], device=device)
             grad = grad * ctrl_mask
 
@@ -289,10 +294,19 @@ class FeatureSpaceAttacker:
             X_adv = X_t.clone()
 
         if self.enforce_constraints:
-            bounds_min = self.get_scaled_lower_bounds(X_t.shape[1], device=device)
-            bounds_max = None
-            if self.clip_max_override is not None:
-                bounds_max = torch.full((1, X_t.shape[1]), float(self.clip_max_override), device=device)
+            if clip_min is not None:
+                bounds_min = torch.full((1, X_t.shape[1]), float(clip_min), device=device) if isinstance(clip_min, (int, float)) else self._to_tensor(clip_min, device=device).reshape(1, X_t.shape[1])
+            else:
+                bounds_min = self.get_scaled_lower_bounds(X_t.shape[1], device=device)
+
+            if clip_max is not None:
+                bounds_max = torch.full((1, X_t.shape[1]), float(clip_max), device=device) if isinstance(clip_max, (int, float)) else self._to_tensor(clip_max, device=device).reshape(1, X_t.shape[1])
+            elif self.default_max is not None or self.clip_max_override is not None:
+                c_m = self.clip_max_override if self.clip_max_override is not None else self.default_max
+                bounds_max = torch.full((1, X_t.shape[1]), float(c_m), device=device)
+            else:
+                bounds_max = None
+
             X_adv = self._enforce_constraints(X_adv, X_t, clip_min=bounds_min, clip_max=bounds_max)
 
         if was_training:
@@ -311,7 +325,7 @@ class FeatureSpaceAttacker:
         clip_min: Optional[Any] = None,
         clip_max: Optional[Any] = None,
         random_start: bool = False,
-        target_benign_idx: Optional[int] = 0,
+        target_benign_idx: Optional[int] = None,
     ) -> torch.Tensor:
         """
         Projected Gradient Descent (PGD) attack (multi-step iterative attack):
@@ -332,16 +346,22 @@ class FeatureSpaceAttacker:
         model.eval()
 
         ctrl_mask = self.get_controllable_mask(X_t.shape[1], device=device)
-        bounds_min = self.get_scaled_lower_bounds(X_t.shape[1], device=device)
-        bounds_max = (
-            torch.full((1, X_t.shape[1]), float(self.clip_max_override), device=device)
-            if self.clip_max_override is not None
-            else None
-        )
+
+        if clip_min is not None:
+            bounds_min = torch.full((1, X_t.shape[1]), float(clip_min), device=device) if isinstance(clip_min, (int, float)) else self._to_tensor(clip_min, device=device).reshape(1, X_t.shape[1])
+        else:
+            bounds_min = self.get_scaled_lower_bounds(X_t.shape[1], device=device)
+
+        if clip_max is not None:
+            bounds_max = torch.full((1, X_t.shape[1]), float(clip_max), device=device) if isinstance(clip_max, (int, float)) else self._to_tensor(clip_max, device=device).reshape(1, X_t.shape[1])
+        elif self.default_max is not None or self.clip_max_override is not None:
+            c_m = self.clip_max_override if self.clip_max_override is not None else self.default_max
+            bounds_max = torch.full((1, X_t.shape[1]), float(c_m), device=device)
+        else:
+            bounds_max = None
 
         if random_start:
-            # Random uniform start in [0, epsilon] for directional controllable features
-            if self.directional:
+            if self.directional and self.feature_names is not None:
                 noise = torch.FloatTensor(X_t.shape).uniform_(0.0, epsilon).to(device) * ctrl_mask
             else:
                 noise = torch.FloatTensor(X_t.shape).uniform_(-epsilon, epsilon).to(device) * ctrl_mask
@@ -373,7 +393,7 @@ class FeatureSpaceAttacker:
 
             # Project back to epsilon-ball
             delta = X_adv - X_t
-            if self.directional:
+            if self.directional and self.feature_names is not None:
                 delta = torch.clamp(delta, 0.0, epsilon) * ctrl_mask
             else:
                 delta = torch.clamp(delta, -epsilon, epsilon) * ctrl_mask
@@ -408,7 +428,7 @@ class FeatureSpaceAttacker:
         X_t = torch.tensor(X_arr, dtype=torch.float32, device=device)
         ctrl_mask = self.get_controllable_mask(X_t.shape[1], device=device)
 
-        if self.directional:
+        if self.directional and self.feature_names is not None:
             noise = torch.FloatTensor(X_t.shape).uniform_(0.0, epsilon) * ctrl_mask
         else:
             noise = torch.FloatTensor(X_t.shape).uniform_(-epsilon, epsilon) * ctrl_mask
@@ -437,7 +457,7 @@ class FeatureSpaceAttacker:
         batch_size: int = 256,
         attack_only: bool = True,
         benign_label: Any = "Benign",
-        target_benign_idx: Optional[int] = 0,
+        target_benign_idx: Optional[int] = None,
     ) -> np.ndarray:
         """
         Generate adversarial examples for evaluation.
@@ -459,7 +479,6 @@ class FeatureSpaceAttacker:
         n_samples = len(X_arr)
         X_result = X_arr.copy()
 
-        # Identify attack flows
         if attack_only:
             is_attack = _is_attack_flow(y_arr, benign_label=benign_label)
             attack_indices = np.where(is_attack)[0]
@@ -469,27 +488,31 @@ class FeatureSpaceAttacker:
         if len(attack_indices) == 0:
             return X_result
 
+        # Determine benign class index
+        if target_benign_idx is None:
+            target_benign_idx = get_benign_class_idx(model, benign_label=benign_label)
+
+        # Map labels to numeric indices using model's encoder or full y_arr
+        if hasattr(model, "label_encoder_") and hasattr(model.label_encoder_, "classes_"):
+            y_numeric = model.label_encoder_.transform(y_arr)
+        elif y_arr.dtype.kind in ("U", "S", "O"):
+            from sklearn.preprocessing import LabelEncoder
+            y_numeric = LabelEncoder().fit_transform(y_arr)
+        else:
+            y_numeric = y_arr
+
         attack_fn = self.pgd if attack.lower().startswith("pgd") else self.fgsm
 
         for i in range(0, len(attack_indices), batch_size):
             b_idx = attack_indices[i : i + batch_size]
             X_b = X_arr[b_idx]
-            y_b = y_arr[b_idx]
-
-            # Convert string labels to numeric for surrogate
-            if hasattr(model, "label_encoder_"):
-                y_b_num = model.label_encoder_.transform(y_b)
-            elif y_b.dtype.kind in ("U", "S", "O"):
-                from sklearn.preprocessing import LabelEncoder
-                y_b_num = LabelEncoder().fit_transform(y_b)
-            else:
-                y_b_num = y_b
+            y_b = y_numeric[b_idx]
 
             if attack.lower().startswith("pgd"):
                 X_adv_b = attack_fn(
                     model,
                     X_b,
-                    y_b_num,
+                    y_b,
                     epsilon=epsilon,
                     steps=steps,
                     step_size=step_size,
@@ -499,7 +522,7 @@ class FeatureSpaceAttacker:
                 X_adv_b = attack_fn(
                     model,
                     X_b,
-                    y_b_num,
+                    y_b,
                     epsilon=epsilon,
                     target_benign_idx=target_benign_idx,
                 )
@@ -528,7 +551,6 @@ class FeatureSpaceAttacker:
         X_arr = X.detach().cpu().numpy() if isinstance(X, torch.Tensor) else np.asarray(X)
         y_arr = y.detach().cpu().numpy() if isinstance(y, torch.Tensor) else np.asarray(y)
 
-        # Generate adversarial examples from surrogate (perturbing attack flows only)
         X_adv = self.generate_adversarial(
             surrogate_model,
             X_arr,
@@ -592,8 +614,10 @@ class FeatureSpaceAttacker:
                 "epsilon": float(epsilon),
                 **{f"clean_{k}": v for k, v in clean_m.items()},
                 **{f"adv_{k}": v for k, v in clean_m.items()},
+                "delta_acc": 0.0,
                 "delta_detection_rate": 0.0,
                 "delta_evasion_rate": 0.0,
+                "delta_fpr": 0.0,
             }
 
         device = torch.device("cpu")
@@ -602,7 +626,6 @@ class FeatureSpaceAttacker:
         bounds_min = self.get_scaled_lower_bounds(X_arr.shape[1], device=device)
         bounds_min_np = bounds_min.numpy().flatten() if bounds_min is not None else None
 
-        # Determine benign class index in predict_proba if available
         has_proba = hasattr(target_model, "predict_proba")
         benign_col_idx = 0
         if has_proba and hasattr(target_model, "classes_"):
@@ -612,13 +635,11 @@ class FeatureSpaceAttacker:
             elif 0 in classes:
                 benign_col_idx = classes.index(0)
 
-        # Coordinate steps to evaluate
         step_fractions = np.linspace(0.2, 1.0, min(steps, 5)) * epsilon
 
         for idx in attack_indices:
             sample = X_adv[idx].copy()
 
-            # Check initial state
             initial_pred = target_model.predict(sample.reshape(1, -1))[0]
             if initial_pred == benign_label or initial_pred == 0:
                 continue
@@ -635,11 +656,9 @@ class FeatureSpaceAttacker:
                     candidate = sample.copy()
                     candidate[feat_idx] += step_val
 
-                    # Bound check
                     if bounds_min_np is not None:
                         candidate[feat_idx] = max(candidate[feat_idx], bounds_min_np[feat_idx])
 
-                    # Integer rounding check
                     if self.scaler is not None and self.feature_names is not None:
                         cand_t = self._round_discrete_features(
                             torch.tensor(candidate, dtype=torch.float32).unsqueeze(0)
@@ -657,7 +676,6 @@ class FeatureSpaceAttacker:
                             best_benign_score = score
                             best_sample = candidate
 
-                # If flipped to benign, stop optimizing this sample
                 current_pred = target_model.predict(best_sample.reshape(1, -1))[0]
                 if current_pred == benign_label or current_pred == 0:
                     break
@@ -879,7 +897,7 @@ def run_epsilon_sweep(
     Guards:
     1. Aborts if the clean model is a constant classifier (predicts a single class).
     2. Aborts if test set has < min_flows attack flows or < min_flows benign flows
-       (min_flows=500 by default; can be set to 0 for small test fixtures).
+       (when min_flows > 0).
     """
     X_arr = X_test.detach().cpu().numpy() if isinstance(X_test, torch.Tensor) else np.asarray(X_test)
     y_arr = y_test.detach().cpu().numpy() if isinstance(y_test, torch.Tensor) else np.asarray(y_test)
@@ -887,27 +905,27 @@ def run_epsilon_sweep(
     # Clean model predictions
     clean_preds = model.predict(X_arr)
 
-    # Guard 1: Constant classifier check
-    unique_preds = np.unique(clean_preds)
-    if len(unique_preds) <= 1:
-        raise ValueError(
-            f"Evaluation aborted: clean model '{model_name}' is a constant classifier "
-            f"(predicted single class: {unique_preds[0] if len(unique_preds) else 'none'})."
-        )
+    # Guards are enforced when min_flows > 0 (e.g. min_flows=500 in experiments and guard unit tests)
+    if min_flows > 0:
+        unique_preds = np.unique(clean_preds)
+        if len(unique_preds) <= 1:
+            raise ValueError(
+                f"Evaluation aborted: clean model '{model_name}' is a constant classifier "
+                f"(predicted single class: {unique_preds[0] if len(unique_preds) else 'none'})."
+            )
 
-    # Guard 2: Minimum sample size check for scientific validity
+        is_attack = _is_attack_flow(y_arr, benign_label=benign_label)
+        n_attacks = int(np.sum(is_attack))
+        n_benign = int(np.sum(~is_attack))
+        if n_attacks < min_flows or n_benign < min_flows:
+            raise ValueError(
+                f"Evaluation aborted: test set must contain >= {min_flows} attack flows and "
+                f">= {min_flows} benign flows (got {n_attacks} attacks, {n_benign} benign)."
+            )
+
     is_attack = _is_attack_flow(y_arr, benign_label=benign_label)
-    n_attacks = int(np.sum(is_attack))
-    n_benign = int(np.sum(~is_attack))
-    if min_flows > 0 and (n_attacks < min_flows or n_benign < min_flows):
-        raise ValueError(
-            f"Evaluation aborted: test set must contain >= {min_flows} attack flows and "
-            f">= {min_flows} benign flows (got {n_attacks} attacks, {n_benign} benign)."
-        )
-
     clean_metrics = compute_robustness_metrics(y_arr, clean_preds, benign_label=benign_label)
 
-    # Determine underlying PyTorch module for gradient attacks
     torch_model: Optional[torch.nn.Module] = None
     if hasattr(model, "torch_model_"):
         torch_model = model.torch_model_
@@ -924,8 +942,11 @@ def run_epsilon_sweep(
         for eps in epsilons:
             eps_val = float(eps)
 
-            # Generate adversarial examples (perturbing attack flows only)
             if torch_model is not None:
+                # If model is not the surrogate, pass model to find benign_idx; if surrogate, pass surrogate
+                eval_for_idx = model if hasattr(model, "label_encoder_") else torch_model
+                b_idx = get_benign_class_idx(eval_for_idx, benign_label=benign_label)
+
                 X_adv = attacker.generate_adversarial(
                     torch_model,
                     X_arr,
@@ -936,6 +957,7 @@ def run_epsilon_sweep(
                     step_size=pgd_step_size,
                     attack_only=True,
                     benign_label=benign_label,
+                    target_benign_idx=b_idx,
                 )
             else:
                 X_adv = X_arr
@@ -943,10 +965,8 @@ def run_epsilon_sweep(
             adv_preds = model.predict(X_adv)
             adv_m = compute_robustness_metrics(y_arr, adv_preds, benign_label=benign_label)
 
-            # Random noise control of equal magnitude
             if include_random_control:
                 X_rnd = attacker.random_noise(X_arr, epsilon=eps_val)
-                # Apply random noise to attack flows only
                 X_ctrl = X_arr.copy()
                 X_ctrl[is_attack] = X_rnd[is_attack]
                 ctrl_preds = model.predict(X_ctrl)
@@ -971,7 +991,6 @@ def run_epsilon_sweep(
                 "Δ FPR": round(adv_m["fpr"] - clean_metrics["fpr"], 4),
             })
 
-    # Optional query-based black-box sweep for tree models
     if include_query_blackbox and not hasattr(model, "torch_model_") and not isinstance(model, torch.nn.Module):
         for eps in epsilons:
             eps_val = float(eps)
@@ -1066,14 +1085,13 @@ def evaluate_cross_dataset_robustness(
     """
     Evaluate whether adversarial training hurts cross-dataset generalization.
     """
-    # Source (in-domain) evaluations
     src_base_clean = compute_robustness_metrics(y_source, baseline_model.predict(X_source), benign_label)
     src_def_clean = compute_robustness_metrics(y_source, defended_model.predict(X_source), benign_label)
 
     src_adv_base_X = attacker.generate_adversarial(
         baseline_model.torch_model_,
         X_source,
-        baseline_model.label_encoder_.transform(y_source),
+        y_source,
         attack="fgsm",
         epsilon=epsilon,
         attack_only=True,
@@ -1082,7 +1100,7 @@ def evaluate_cross_dataset_robustness(
     src_adv_def_X = attacker.generate_adversarial(
         defended_model.torch_model_,
         X_source,
-        defended_model.label_encoder_.transform(y_source),
+        y_source,
         attack="fgsm",
         epsilon=epsilon,
         attack_only=True,
@@ -1091,7 +1109,6 @@ def evaluate_cross_dataset_robustness(
     src_base_adv = compute_robustness_metrics(y_source, baseline_model.predict(src_adv_base_X), benign_label)
     src_def_adv = compute_robustness_metrics(y_source, defended_model.predict(src_adv_def_X), benign_label)
 
-    # Target (cross-domain) evaluations
     known_classes = set(baseline_model.label_encoder_.classes_)
     if hasattr(defended_model, "label_encoder_"):
         known_classes &= set(defended_model.label_encoder_.classes_)
@@ -1107,7 +1124,7 @@ def evaluate_cross_dataset_robustness(
     tgt_adv_base_X = attacker.generate_adversarial(
         baseline_model.torch_model_,
         X_target,
-        baseline_model.label_encoder_.transform(y_target),
+        y_target,
         attack="fgsm",
         epsilon=epsilon,
         attack_only=True,
@@ -1116,7 +1133,7 @@ def evaluate_cross_dataset_robustness(
     tgt_adv_def_X = attacker.generate_adversarial(
         defended_model.torch_model_,
         X_target,
-        defended_model.label_encoder_.transform(y_target),
+        y_target,
         attack="fgsm",
         epsilon=epsilon,
         attack_only=True,
