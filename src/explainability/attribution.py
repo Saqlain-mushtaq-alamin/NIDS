@@ -329,7 +329,7 @@ def evaluate_generator_feature_recovery(
     # C. DeepLIFT on MLP
     from captum.attr import DeepLift
     dl = DeepLift(mlp)
-    dl_tensor = torch.as_tensor(test_sub, dtype=torch.float32, requires_grad=True)
+    dl_tensor = torch.as_tensor(test_sub, dtype=torch.float32).requires_grad_()
     dl_baseline = torch.zeros((1, n_features), dtype=torch.float32)
     dl_attr = dl.attribute(dl_tensor, target=1, baselines=dl_baseline).detach().cpu().numpy()
     dl_res = ground_truth_precision_at_k(dl_attr, ground_truth_features, top_k=n_informative, seed=seed)
