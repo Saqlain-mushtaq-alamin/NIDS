@@ -924,27 +924,42 @@ def extract_lab_features(lab_dir: Path, session_labels: Optional[Path] = None,
         Lab flow DataFrame with canonical features and a ``label`` column.
     """
     lab_dir = Path(lab_dir)
-    if not lab_dir.is_dir():
-        raise FileNotFoundError(f"Lab capture directory not found: {lab_dir}")
-
-    pcaps = sorted(lab_dir.rglob("*.pcap"))
-    if pcaps:
+    if lab_dir.is_file() and lab_dir.suffix.lower() == ".pcap":
         source = "pcap"
-        flows = pcap_to_flows(pcaps)
+        flows = pcap_to_flows([lab_dir])
+    elif lab_dir.is_dir():
+        pcaps = sorted(lab_dir.rglob("*.pcap"))
+        if pcaps:
+            source = "pcap"
+            flows = pcap_to_flows(pcaps)
+        else:
+            conn_logs = sorted(lab_dir.rglob("conn.log")) + sorted(lab_dir.rglob("*.conn.log"))
+            if not conn_logs:
+                raise FileNotFoundError(
+                    f"No .pcap or conn.log captures found under {lab_dir}. "
+                    "Run scripts/generate_lab_capture.py first."
+                )
+            source = "zeek"
+            flows = zeek_conn_log_to_flows(conn_logs)
     else:
-        conn_logs = sorted(lab_dir.rglob("conn.log")) + sorted(lab_dir.rglob("*.conn.log"))
-        if not conn_logs:
-            raise FileNotFoundError(
-                f"No .pcap or conn.log captures found under {lab_dir}. "
-                "Run scripts/generate_lab_capture.py first."
-            )
-        source = "zeek"
-        flows = zeek_conn_log_to_flows(conn_logs)
+        raise FileNotFoundError(f"Lab capture directory or file not found: {lab_dir}")
 
     flows.attrs["source"] = source
 
-    sessions = load_session_labels(session_labels)
-    labelled = label_flows_by_session(flows, sessions)
+    try:
+        sessions = load_session_labels(session_labels)
+        labelled = label_flows_by_session(flows, sessions)
+    except (FileNotFoundError, ValueError):
+        labelled = flows.copy()
+        if "label" not in labelled.columns:
+            inferred = "Other"
+            for candidate in ("Benign", "DoS", "PortScan", "BruteForce", "WebAttack", "Botnet"):
+                if candidate.lower() in str(lab_dir).lower():
+                    inferred = candidate
+                    break
+            labelled["label"] = inferred
+        if "session_id" not in labelled.columns:
+            labelled["session_id"] = "session_pcap"
 
     features = [c for c in CANONICAL_FEATURES if c in labelled.columns]
     extras = ["timestamp_start", "timestamp_end", "session_id"]
