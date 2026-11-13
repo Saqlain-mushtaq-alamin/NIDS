@@ -79,7 +79,7 @@ def run_fusion(quick: bool, seed: int = 42, **_) -> dict:
         flows = flows.head(1200).copy()
 
     # Fit preprocessor strictly on benign flows only
-    preprocessor = Preprocessor(feature_mode="behavior_only", seed=seed)
+    preprocessor = Preprocessor(feature_mode="behavior_only")
     benign_flows = flows[flows["label"].astype(str).str.lower() == "benign"].copy()
     preprocessor.fit(benign_flows)
 
