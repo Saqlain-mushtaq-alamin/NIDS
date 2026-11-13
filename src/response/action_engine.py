@@ -410,3 +410,99 @@ class ResponseEngine:
         self._active_rate_limits[ip] = now + self.rate_limit_seconds
         outcome["expires_at"] = self._active_rate_limits[ip]
         return outcome
+
+
+def replay_mixed_stream(
+    events: list[dict],
+    engine: Optional[ResponseEngine] = None,
+    calibrator: Optional[object] = None,
+) -> dict:
+    """
+    Replay a mixed stream of benign and attack hosts through the response engine.
+
+    Measures:
+    - Attacks mitigated: attack flows/hosts successfully blocked or rate-limited.
+    - Benign hosts wrongly blocked: benign hosts subjected to a BLOCK action (false positive).
+    - Attacks downgraded: attack alerts whose intended action was BLOCK but were
+      downgraded to LOG_ONLY because the rolling rate-limiter budget was exceeded (NFR10).
+
+    Args:
+        events: List of event dicts with keys:
+            'source_ip', 'true_label', 'confidence' (or 'probabilities'),
+            'severity', 'label' (predicted), and optional 'alert_id'.
+        engine: Optional ResponseEngine instance; defaults to new dry-run instance.
+        calibrator: Optional TemperatureScaler to calibrate confidences before
+            action decisions.
+
+    Returns:
+        dict containing mitigated counts, wrongly blocked counts, downgraded counts,
+        action distribution by true class, and detailed action log.
+    """
+    if engine is None:
+        engine = ResponseEngine(max_blocks_per_minute=10, dry_run=True, calibrator=calibrator)
+    elif calibrator is not None:
+        engine.calibrator = calibrator
+
+    log = []
+    attacks_mitigated = 0
+    attacks_blocked = 0
+    attacks_rate_limited = 0
+    attacks_downgraded = 0
+
+    benign_events_blocked = 0
+    benign_hosts_blocked: set[str] = set()
+
+    action_by_true_class: dict[str, dict[str, int]] = {}
+    attack_total = 0
+    benign_total = 0
+
+    for event in events:
+        true_label = str(event.get("true_label", "Benign"))
+        is_attack = true_label != "Benign"
+        if is_attack:
+            attack_total += 1
+        else:
+            benign_total += 1
+
+        action_record = engine.execute(event)
+        log.append(action_record)
+
+        act = action_record["action"]
+        req_act = action_record.get("requested_action", act)
+        src_ip = action_record["source_ip"]
+
+        class_dict = action_by_true_class.setdefault(true_label, Counter())
+        class_dict[act] += 1
+
+        if is_attack:
+            if act in (BLOCK, RATE_LIMIT):
+                attacks_mitigated += 1
+            if act == BLOCK:
+                attacks_blocked += 1
+            elif act == RATE_LIMIT:
+                attacks_rate_limited += 1
+
+            if req_act == BLOCK and act != BLOCK:
+                attacks_downgraded += 1
+        else:
+            if act == BLOCK:
+                benign_events_blocked += 1
+                benign_hosts_blocked.add(src_ip)
+
+    return {
+        "n_events": len(events),
+        "n_attack_events": attack_total,
+        "n_benign_events": benign_total,
+        "attacks_mitigated": attacks_mitigated,
+        "attacks_mitigated_rate": (attacks_mitigated / attack_total) if attack_total else 0.0,
+        "attacks_blocked": attacks_blocked,
+        "attacks_rate_limited": attacks_rate_limited,
+        "attacks_downgraded_by_rate_limiter": attacks_downgraded,
+        "benign_hosts_wrongly_blocked": sorted(list(benign_hosts_blocked)),
+        "n_benign_hosts_wrongly_blocked": len(benign_hosts_blocked),
+        "benign_events_wrongly_blocked": benign_events_blocked,
+        "benign_block_rate": (benign_events_blocked / benign_total) if benign_total else 0.0,
+        "action_by_true_label": {k: dict(v) for k, v in action_by_true_class.items()},
+        "log": log,
+    }
+
