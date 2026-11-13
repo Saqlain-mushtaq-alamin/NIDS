@@ -759,11 +759,22 @@ def run_response(ctx: Phase4Context, tiered_result: dict | None = None,
                            "(run --components tiered response).")
 
     # 1. Temperature scaling calibration
-    print("[response] fitting TemperatureScaler on validation probabilities ...")
+    print("[response] fitting TemperatureScaler on cross-validated probabilities ...")
+    from sklearn.model_selection import cross_val_predict
+    from xgboost import XGBClassifier
+
+    cal_n = min(2000 if ctx.quick else 4000, len(ctx.X_train))
+    cv_clf = XGBClassifier(
+        n_estimators=30 if ctx.quick else 60,
+        max_depth=4,
+        eval_metric="mlogloss",
+        random_state=ctx.seed,
+    )
+    y_train_enc = ctx.xgb.label_encoder_.transform(ctx.y_train[:cal_n])
+    cv_val_probs = cross_val_predict(cv_clf, ctx.X_train[:cal_n], y_train_enc, cv=3, method="predict_proba")
+
     calibrator = TemperatureScaler()
-    val_probs = ctx.xgb.predict_proba(ctx.X_cal)
-    val_labels = ctx.y_cal
-    calibrator.fit(val_probs, val_labels)
+    calibrator.fit(cv_val_probs, y_train_enc)
 
     raw_test_probs = ctx.xgb.predict_proba(ctx.X_test)
     cal_test_probs = calibrator.predict_proba(raw_test_probs)
