@@ -610,6 +610,7 @@ class AnomalyDetector:
         n_attack = int(truth.sum())
         n_benign = int(truth.size - n_attack)
 
+        far = _far(y_is_attack, flagged)
         return {
             "precision": float(precision_score(truth, flags, zero_division=0)),
             "recall": float(recall_score(truth, flags, zero_division=0)),
@@ -617,7 +618,8 @@ class AnomalyDetector:
             "accuracy": float(accuracy_score(truth, flags)),
             "detection_rate": (float(flags[truth == 1].mean())
                                if n_attack else float("nan")),
-            "false_alarm_rate": _far(y_is_attack, flagged),
+            "false_alarm_rate": far,
+            "false_alarms_per_100k": float(far * 100000.0) if np.isfinite(far) else float("nan"),
             "flag_rate": float(flags.mean()) if flags.size else 0.0,
             "n_attack": n_attack,
             "n_benign": n_benign,
@@ -710,6 +712,61 @@ class AnomalyDetector:
                 "calibrated threshold does not survive the domain change"
             )
         return result
+
+    def evaluate_at_prevalence(self, X, y, prevalence: float = 0.01,
+                               seed: int = 42,
+                               threshold: Optional[float] = None) -> dict:
+        """
+        Evaluate detector at realistic attack prevalence (e.g. 1%, 5%, 10%).
+
+        Subsamples attack flows relative to benign flows to match the target
+        prevalence, then reports detection rate, false alarms per 100k benign flows,
+        ROC-AUC, and PR-AUC.
+        """
+        self._require_fitted()
+        cutoff = self.threshold_ if threshold is None else float(threshold)
+        if cutoff is None:
+            raise AutoencoderError("No threshold calibrated.")
+
+        labels = pd.Series(np.asarray(list(y))).astype(str).str.strip()
+        is_attack = (labels.to_numpy() != BENIGN_LABEL)
+        benign_indices = np.where(~is_attack)[0]
+        attack_indices = np.where(is_attack)[0]
+
+        if len(benign_indices) == 0:
+            raise ValueError("No benign samples in evaluation set.")
+        if len(attack_indices) == 0:
+            raise ValueError("No attack samples in evaluation set.")
+
+        n_b = len(benign_indices)
+        target_n_a = max(1, int(round(n_b * (prevalence / (1.0 - prevalence)))))
+        rng = np.random.default_rng(seed)
+
+        if target_n_a <= len(attack_indices):
+            sampled_attack_idx = rng.choice(attack_indices, size=target_n_a, replace=False)
+            sampled_benign_idx = benign_indices
+        else:
+            sampled_attack_idx = attack_indices
+            target_n_b = max(1, int(round(len(attack_indices) * ((1.0 - prevalence) / prevalence))))
+            sampled_benign_idx = rng.choice(benign_indices, size=min(target_n_b, len(benign_indices)), replace=False)
+
+        sub_indices = np.concatenate([sampled_benign_idx, sampled_attack_idx])
+        rng.shuffle(sub_indices)
+
+        matrix = self._matrix(X)[sub_indices]
+        sub_labels = labels.iloc[sub_indices].to_numpy()
+        sub_is_attack = (sub_labels != BENIGN_LABEL)
+
+        errors = self.reconstruction_error(matrix)
+        flagged = errors > cutoff
+        metrics = self._binary_metrics(sub_is_attack, flagged)
+        metrics["prevalence"] = float(prevalence)
+        metrics["actual_prevalence"] = float(sub_is_attack.mean())
+        metrics["roc_auc"] = _safe_auc(sub_is_attack, errors)
+        metrics["pr_auc"] = _safe_average_precision(sub_is_attack, errors)
+        metrics["average_precision"] = metrics["pr_auc"]
+        metrics["threshold"] = float(cutoff)
+        return metrics
 
     # -- persistence --------------------------------------------------------
     def state_dict(self) -> dict:
@@ -835,6 +892,156 @@ def _describe(errors: np.ndarray, is_attack: np.ndarray) -> dict:
     return summary
 
 
+class BaselineAnomalyModels:
+    """
+    Unsupervised baselines for network anomaly detection:
+    1. Isolation Forest
+    2. PCA Reconstruction Error
+    3. One-Class SVM
+
+    All fitted strictly on benign training rows with thresholds calibrated
+    at a target percentile (e.g. 99th) on benign validation rows.
+    """
+
+    def __init__(self, latent_dim: int = 16, percentile: float = 99.0, seed: int = 42):
+        self.latent_dim = int(latent_dim)
+        self.percentile = float(percentile)
+        self.seed = int(seed)
+        self.models_: dict = {}
+        self.thresholds_: dict = {}
+        self._fitted = False
+
+    def fit(self, X_train_benign: np.ndarray, X_val_benign: np.ndarray) -> "BaselineAnomalyModels":
+        from sklearn.ensemble import IsolationForest
+        from sklearn.decomposition import PCA
+        from sklearn.svm import OneClassSVM
+
+        X_tr = np.asarray(X_train_benign, dtype=np.float64)
+        X_val = np.asarray(X_val_benign, dtype=np.float64)
+        X_tr = np.where(np.isfinite(X_tr), X_tr, 0.0)
+        X_val = np.where(np.isfinite(X_val), X_val, 0.0)
+
+        # 1. Isolation Forest
+        if_model = IsolationForest(
+            n_estimators=100,
+            random_state=self.seed,
+            contamination="auto",
+            n_jobs=-1,
+        )
+        if_model.fit(X_tr)
+        if_val_scores = -if_model.score_samples(X_val)
+        if_thresh = float(np.percentile(if_val_scores, self.percentile))
+
+        # 2. PCA Reconstruction
+        n_comp = max(1, min(self.latent_dim, X_tr.shape[1], X_tr.shape[0]))
+        pca_model = PCA(n_components=n_comp, random_state=self.seed)
+        pca_model.fit(X_tr)
+        pca_val_recon = pca_model.inverse_transform(pca_model.transform(X_val))
+        pca_val_scores = ((X_val - pca_val_recon) ** 2).mean(axis=1)
+        pca_thresh = float(np.percentile(pca_val_scores, self.percentile))
+
+        # 3. One-Class SVM (subsample if training set is large to avoid O(N^2) memory bottleneck)
+        oc_max_samples = min(5000, len(X_tr))
+        rng = np.random.default_rng(self.seed)
+        oc_tr = X_tr if len(X_tr) <= oc_max_samples else X_tr[rng.choice(len(X_tr), size=oc_max_samples, replace=False)]
+        oc_model = OneClassSVM(kernel="rbf", gamma="scale", nu=0.05)
+        oc_model.fit(oc_tr)
+        oc_val_scores = -oc_model.decision_function(X_val).ravel()
+        oc_thresh = float(np.percentile(oc_val_scores, self.percentile))
+
+        self.models_ = {
+            "IsolationForest": if_model,
+            "PCA": pca_model,
+            "OneClassSVM": oc_model,
+        }
+        self.thresholds_ = {
+            "IsolationForest": if_thresh,
+            "PCA": pca_thresh,
+            "OneClassSVM": oc_thresh,
+        }
+        self._fitted = True
+        return self
+
+    def score_samples(self, name: str, X: np.ndarray) -> np.ndarray:
+        if not self._fitted:
+            raise RuntimeError("BaselineAnomalyModels must be fitted before scoring.")
+        X_mat = np.asarray(X, dtype=np.float64)
+        X_mat = np.where(np.isfinite(X_mat), X_mat, 0.0)
+
+        if name == "IsolationForest":
+            return -self.models_["IsolationForest"].score_samples(X_mat)
+        elif name == "PCA":
+            pca = self.models_["PCA"]
+            recon = pca.inverse_transform(pca.transform(X_mat))
+            return ((X_mat - recon) ** 2).mean(axis=1)
+        elif name == "OneClassSVM":
+            return -self.models_["OneClassSVM"].decision_function(X_mat).ravel()
+        else:
+            raise ValueError(f"Unknown baseline: {name}")
+
+    def evaluate(self, X: np.ndarray, y: Sequence[str]) -> dict[str, dict]:
+        if not self._fitted:
+            raise RuntimeError("BaselineAnomalyModels must be fitted before evaluation.")
+        labels = pd.Series(list(y)).astype(str).str.strip().to_numpy()
+        is_attack = (labels != BENIGN_LABEL)
+
+        results = {}
+        for name in self.models_:
+            scores = self.score_samples(name, X)
+            thresh = self.thresholds_[name]
+            flagged = scores > thresh
+
+            metrics = AnomalyDetector._binary_metrics(is_attack, flagged)
+            metrics["roc_auc"] = _safe_auc(is_attack, scores)
+            metrics["pr_auc"] = _safe_average_precision(is_attack, scores)
+            metrics["threshold"] = thresh
+            results[name] = metrics
+        return results
+
+    def evaluate_at_prevalence(self, X: np.ndarray, y: Sequence[str],
+                               prevalence: float = 0.01, seed: int = 42) -> dict[str, dict]:
+        if not self._fitted:
+            raise RuntimeError("BaselineAnomalyModels must be fitted.")
+        labels = pd.Series(list(y)).astype(str).str.strip().to_numpy()
+        is_attack = (labels != BENIGN_LABEL)
+        benign_indices = np.where(~is_attack)[0]
+        attack_indices = np.where(is_attack)[0]
+
+        n_b = len(benign_indices)
+        target_n_a = max(1, int(round(n_b * (prevalence / (1.0 - prevalence)))))
+        rng = np.random.default_rng(seed)
+
+        if target_n_a <= len(attack_indices):
+            sampled_attack_idx = rng.choice(attack_indices, size=target_n_a, replace=False)
+            sampled_benign_idx = benign_indices
+        else:
+            sampled_attack_idx = attack_indices
+            target_n_b = max(1, int(round(len(attack_indices) * ((1.0 - prevalence) / prevalence))))
+            sampled_benign_idx = rng.choice(benign_indices, size=min(target_n_b, len(benign_indices)), replace=False)
+
+        sub_indices = np.concatenate([sampled_benign_idx, sampled_attack_idx])
+        rng.shuffle(sub_indices)
+
+        X_sub = np.asarray(X)[sub_indices]
+        y_sub = labels[sub_indices]
+        sub_is_attack = (y_sub != BENIGN_LABEL)
+
+        results = {}
+        for name in self.models_:
+            scores = self.score_samples(name, X_sub)
+            thresh = self.thresholds_[name]
+            flagged = scores > thresh
+
+            metrics = AnomalyDetector._binary_metrics(sub_is_attack, flagged)
+            metrics["prevalence"] = float(prevalence)
+            metrics["actual_prevalence"] = float(sub_is_attack.mean())
+            metrics["roc_auc"] = _safe_auc(sub_is_attack, scores)
+            metrics["pr_auc"] = _safe_average_precision(sub_is_attack, scores)
+            metrics["threshold"] = thresh
+            results[name] = metrics
+        return results
+
+
 def train_benign_autoencoder(train_frame: pd.DataFrame, label_column: str = LABEL_COLUMN,
                              feature_columns: Optional[Sequence[str]] = None,
                              test_ratio: float = 0.2, val_ratio: float = 0.1,
@@ -842,13 +1049,7 @@ def train_benign_autoencoder(train_frame: pd.DataFrame, label_column: str = LABE
     """
     Convenience wrapper returning ``(detector, preprocessor, frame)``.
 
-    The frame is *not* preprocessed here — pass raw rows and let the returned
-    :class:`~src.data.preprocessor.Preprocessor` handle scaling, which keeps the
-    train/test boundary in one place (the preprocessor is fitted on the training
-    rows only).
-
-    Returns:
-        ``(detector, preprocessor, train_frame)``.
+    Fits the preprocessor/scaler strictly on benign training rows.
     """
     from src.data.preprocessor import Preprocessor
 
@@ -858,8 +1059,19 @@ def train_benign_autoencoder(train_frame: pd.DataFrame, label_column: str = LABE
     )
     splits = preprocessor.split(train_frame, test_ratio=test_ratio,
                                 val_ratio=val_ratio, seed=seed)
-    train_X, train_y = splits["train"]["X"], splits["train"]["y"]
-    val_X, val_y = splits["val"]["X"], splits["val"]["y"]
+
+    # Fit scaler strictly on benign training rows
+    train_df = splits["train"]["df"]
+    benign_mask = train_df[label_column].astype(str).str.strip().str.lower() == BENIGN_LABEL.lower()
+    train_benign_df = train_df[benign_mask]
+    if len(train_benign_df) == 0:
+        raise AutoencoderError("No benign rows in training set to fit scaler.")
+    preprocessor.fit(train_benign_df)
+
+    train_X = preprocessor.transform(splits["train"]["df"])
+    train_y = splits["train"]["y"]
+    val_X = preprocessor.transform(splits["val"]["df"])
+    val_y = splits["val"]["y"]
 
     detector = AnomalyDetector(seed=seed, **kwargs)
     detector.fit(train_X, train_y, val_X, val_y)
@@ -870,6 +1082,7 @@ def train_benign_autoencoder(train_frame: pd.DataFrame, label_column: str = LABE
 __all__ = [
     "AnomalyDetector",
     "AutoencoderError",
+    "BaselineAnomalyModels",
     "BENIGN_LABEL",
     "EvaluationResult",
     "FlowAutoencoder",
