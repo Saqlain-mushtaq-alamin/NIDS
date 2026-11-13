@@ -443,11 +443,27 @@ class HostCommGraph:
         return label, fraction
 
 
+_SYNONYMS = {
+    "total_length_of_fwd_packets": ["total_length_of_fwd_packets", "total_length_of_packets", "sbytes", "tot_len_fwd_pkts", "in_bytes"],
+    "total_fwd_packets": ["total_fwd_packets", "total_packets", "spkts", "tot_fwd_pkts", "in_pkts"],
+    "flow_duration": ["flow_duration", "duration", "dur", "flow_duration_ms"],
+    "dst_port": ["dst_port", "destination_port", "dsport", "dport", "destination port"],
+}
+
+
 def _numeric(frame: pd.DataFrame, column: str) -> np.ndarray:
     """Return ``column`` as float64, substituting 0.0 for missing values."""
-    if column not in frame.columns:
+    col = column
+    if col not in frame.columns:
+        candidates = _SYNONYMS.get(column, [column])
+        lowered = {str(c).strip().lower(): c for c in frame.columns}
+        for cand in candidates:
+            if cand.lower() in lowered:
+                col = lowered[cand.lower()]
+                break
+    if col not in frame.columns:
         return np.zeros(len(frame), dtype=np.float64)
-    values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=np.float64)
+    values = pd.to_numeric(frame[col], errors="coerce").to_numpy(dtype=np.float64)
     return np.where(np.isfinite(values), values, 0.0)
 
 
