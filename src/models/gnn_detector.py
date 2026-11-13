@@ -175,26 +175,45 @@ class HostCommGraph:
         return np.floor(values / self.window_seconds).astype(np.int64)
 
     @staticmethod
+    def _merge_metadata(frame: pd.DataFrame) -> pd.DataFrame:
+        meta = getattr(frame, "attrs", {}).get("metadata", None)
+        if meta is not None and isinstance(meta, pd.DataFrame):
+            out = frame.copy()
+            for col in meta.columns:
+                if col not in out.columns:
+                    out[col] = meta[col].to_numpy()
+            return out
+        return frame
+
+    @staticmethod
     def resolve_host_columns(frame: pd.DataFrame) -> tuple[str, str]:
         """
         Locate the source/destination host columns.
 
         Supports the canonical ``src_ip``/``dst_ip`` produced by
-        :mod:`src.data.feature_extractor` and the Zeek names
-        ``id.orig_h``/``id.resp_h``.
+        :mod:`src.data.feature_extractor`, Zeek names ``id.orig_h``/``id.resp_h``,
+        CIC names ``Source IP``/``Destination IP``, and UNSW names ``srcip``/``dstip``.
 
         Raises:
             GraphBuildError: when neither naming convention is present.
         """
-        lowered = {str(c).strip().lower(): c for c in frame.columns}
-        for src, dst in (("src_ip", "dst_ip"), ("id.orig_h", "id.resp_h"),
-                         ("source_ip", "destination_ip")):
+        target = HostCommGraph._merge_metadata(frame)
+        lowered = {str(c).strip().lower(): c for c in target.columns}
+        candidates = (
+            ("src_ip", "dst_ip"),
+            ("id.orig_h", "id.resp_h"),
+            ("source_ip", "destination_ip"),
+            ("source ip", "destination ip"),
+            ("srcip", "dstip"),
+            ("ipv4_src_addr", "ipv4_dst_addr"),
+        )
+        for src, dst in candidates:
             if src in lowered and dst in lowered:
                 return lowered[src], lowered[dst]
         raise GraphBuildError(
             "No host-address columns found. Expected one of "
-            "('src_ip','dst_ip') or ('id.orig_h','id.resp_h'); got "
-            f"{list(frame.columns)[:12]}"
+            "('src_ip','dst_ip'), ('id.orig_h','id.resp_h'), or ('source ip','destination ip'); got "
+            f"{list(target.columns)[:12]}"
         )
 
     # -- graph construction -------------------------------------------------
@@ -217,6 +236,7 @@ class HostCommGraph:
         """
         from torch_geometric.data import Data
 
+        flows = self._merge_metadata(flows)
         if flows is None or len(flows) == 0:
             raise GraphBuildError("Cannot build a graph from an empty flow window")
 
@@ -346,13 +366,22 @@ class HostCommGraph:
         Raises:
             GraphBuildError: when no window can be built.
         """
-        if self.timestamp_column not in flows.columns:
+        flows = self._merge_metadata(flows)
+        ts_col = self.timestamp_column
+        if ts_col not in flows.columns:
+            lowered = {str(c).strip().lower(): c for c in flows.columns}
+            for candidate in ("timestamp_start", "timestamp", "stime", "time", "date"):
+                if candidate in lowered:
+                    ts_col = lowered[candidate]
+                    break
+
+        if ts_col not in flows.columns:
             raise GraphBuildError(
-                f"'{self.timestamp_column}' column required for windowing"
+                f"'{self.timestamp_column}' column required for windowing. Available: {list(flows.columns)[:10]}"
             )
 
         frame = flows.copy()
-        frame["__window"] = self.window_index(frame[self.timestamp_column])
+        frame["__window"] = self.window_index(frame[ts_col])
         records: list[WindowRecord] = []
         skipped: list[str] = []
 
