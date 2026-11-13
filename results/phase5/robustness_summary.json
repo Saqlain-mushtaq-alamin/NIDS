@@ -4,50 +4,69 @@
   "defense_epsilon": 0.1,
   "defense_ratio": 0.5,
   "defense_improvements": {
-    "fgsm": {
+    "fgsm_defense": {
       "epsilon": 0.1,
       "attack": "FGSM",
-      "baseline_adv_acc": 0.875,
-      "defended_adv_acc": 0.875,
-      "defense_acc_gain": 0.0,
-      "defense_acc_gain_pct": 0.0,
-      "baseline_adv_fpr": 1.0,
-      "defended_adv_fpr": 1.0,
-      "defense_fpr_reduction": 0.0,
-      "defense_fpr_reduction_pct": 0.0
+      "baseline_adv_acc": 0.9711,
+      "defended_adv_acc": 0.9717,
+      "defense_acc_gain": 0.0006,
+      "defense_acc_gain_pct": 0.06,
+      "baseline_adv_fpr": 0.0933,
+      "defended_adv_fpr": 0.0978,
+      "defense_fpr_reduction": -0.0045,
+      "defense_fpr_reduction_pct": -0.45,
+      "baseline_evasion_rate": 0.0197,
+      "defended_evasion_rate": 0.0184,
+      "evasion_reduction": 0.0013
     },
-    "pgd": {
+    "pgd_defense": {
       "epsilon": 0.1,
       "attack": "PGD-10",
-      "baseline_adv_acc": 0.875,
-      "defended_adv_acc": 0.0,
-      "defense_acc_gain": -0.875,
-      "defense_acc_gain_pct": -87.5,
-      "baseline_adv_fpr": 1.0,
-      "defended_adv_fpr": 1.0,
-      "defense_fpr_reduction": 0.0,
-      "defense_fpr_reduction_pct": 0.0
+      "baseline_adv_acc": 0.9711,
+      "defended_adv_acc": 0.9706,
+      "defense_acc_gain": -0.0005,
+      "defense_acc_gain_pct": -0.05,
+      "baseline_adv_fpr": 0.0933,
+      "defended_adv_fpr": 0.1022,
+      "defense_fpr_reduction": -0.0089,
+      "defense_fpr_reduction_pct": -0.89,
+      "baseline_evasion_rate": 0.0197,
+      "defended_evasion_rate": 0.019,
+      "evasion_reduction": 0.0007
     }
+  },
+  "gradient_masking_check": {
+    "whitebox_evasion": 0.019,
+    "blackbox_evasion": 0.0121,
+    "gap": -0.0069,
+    "gradient_masking_detected": false,
+    "evidence": "No gradient masking detected: white-box attack evasion (1.9%) is consistent with black-box evasion (1.2%)"
   },
   "cross_dataset_impact": {
     "epsilon": 0.1,
     "source_in_domain": {
-      "baseline_clean_acc": 0.875,
-      "baseline_adv_acc": 0.875,
-      "defended_clean_acc": 0.875,
-      "defended_adv_acc": 0.875,
-      "defense_gain_in_domain": 0.0
+      "baseline_clean_acc": 0.9756,
+      "baseline_adv_acc": 0.9783,
+      "defended_clean_acc": 0.9756,
+      "defended_adv_acc": 0.9761,
+      "defense_gain_in_domain": -0.0022,
+      "baseline_evasion": 0.0114,
+      "defended_evasion": 0.0127
     },
     "target_cross_domain": {
-      "baseline_clean_acc": 0.8333,
-      "baseline_adv_acc": 0.8333,
-      "defended_clean_acc": 0.8333,
-      "defended_adv_acc": 0.8333,
-      "defense_gain_cross_domain": 0.0,
-      "cross_clean_acc_change": 0.0,
-      "generalization_gap_baseline": 0.0417,
-      "generalization_gap_defended": 0.0417,
+      "baseline_clean_acc": 0.9115,
+      "baseline_adv_acc": 0.9165,
+      "defended_clean_acc": 0.9135,
+      "defended_adv_acc": 0.9187,
+      "defense_gain_cross_domain": 0.0022,
+      "cross_clean_acc_change": 0.002,
+      "generalization_gap_baseline": 0.0641,
+      "generalization_gap_defended": 0.0621,
       "generalization_gap_widened": false
     }
-  }
+  },
+  "citation_verification_notes": [
+    "[MANUAL CITATION VERIFICATION REQUIRED] arXiv:2306.05494: verify black-box evasion claims.",
+    "[MANUAL CITATION VERIFICATION REQUIRED] arXiv:2502.15561: verify empirical adversarial training gains."
+  ]
 }
