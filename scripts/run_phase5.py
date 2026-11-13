@@ -116,7 +116,13 @@ def main(argv=None) -> int:
     logger.info(f"  Secondary ({cfg.evaluation.secondary_dataset}): {len(df_unsw):,} rows")
 
     # Use behavior_only feature set for cross-dataset compatibility
-    prep = Preprocessor(feature_mode="behavior_only", normalization="robust")
+    primary_dataset = cfg.evaluation.primary_dataset
+    secondary_dataset = cfg.evaluation.secondary_dataset
+    prep = Preprocessor(
+        feature_mode="behavior_only",
+        normalization="robust",
+        dataset=primary_dataset,
+    )
     splits = prep.fit_and_split(df_cic, test_ratio=0.25, val_ratio=0.1, seed=seed)
 
     X_train = splits["train"]["X"]
@@ -125,7 +131,7 @@ def main(argv=None) -> int:
     y_test = splits["test"]["y"]
 
     # Transform secondary dataset with fitted preprocessor
-    X_unsw, y_unsw = prep.transform(df_unsw)
+    X_unsw, y_unsw = prep.transform(df_unsw, dataset=secondary_dataset)
 
     # Align labels to common binary taxonomy ("Benign" vs "Attack")
     y_train = np.where(y_train == "Benign", "Benign", "Attack")
