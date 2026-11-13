@@ -378,6 +378,7 @@ class DriftDetector:
                         feature=name,
                         kind="feature_drift",
                         timestamp=timestamp,
+                        sample_index=position,
                         window=int(getattr(detector, "width", 0)),
                         reference_mean=reference,
                         current_mean=current,
@@ -426,10 +427,16 @@ class DriftDetector:
             if detection_alert is not None:
                 alerts.append(detection_alert)
 
+        delays = [a.sample_index for a in alerts if a.sample_index is not None]
+        first_delay = min(delays) if delays else None
+        far = float(len(alerts) / n_rows) if n_rows > 0 else 0.0
+
         stats = self._summary(recent, detection_rate)
         return DriftMonitorReport(n_samples=n_rows, n_alerts=len(alerts),
                                   alerts=alerts, feature_stats=stats,
-                                  detection_rate=detection_rate)
+                                  detection_rate=detection_rate,
+                                  detection_delay=first_delay,
+                                  false_alarm_rate=far)
 
     def _monitor_scalar(self, detector, name: str, values: Sequence[float],
                         timestamps, pretty: str) -> Optional[DriftAlert]:
