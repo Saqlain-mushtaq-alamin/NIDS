@@ -1,8 +1,36 @@
 {
   "data_provenance": "REAL DATA: Evaluated on real CIC-IDS2017 (TrafficLabelling) and UNSW-NB15 with IP and timestamp metadata. Scalers fitted strictly on benign flows; ECDF calibrated on benign validation errors; degree-only logistic regression baseline reported.",
   "quick_mode": true,
-  "components": {},
-  "failures": {
-    "fusion": "AutoencoderError: X_val requires y_val so attacks can be filtered out."
-  }
+  "components": {
+    "fusion": {
+      "dataset": "real_cic2017",
+      "n_flows": 1200,
+      "n_ground_truth_attack": 1200,
+      "fused": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "anomaly_view_alone": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      "graph_view_alone": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "agreement": {
+        "rate": 0.0,
+        "n_agree": 0,
+        "n_disputed": 1200
+      },
+      "n_needs_review": 1200,
+      "n_escalated_as_anomaly": 1200,
+      "is_demo": false,
+      "notes": []
+    }
+  },
+  "failures": {}
 }
