@@ -346,7 +346,7 @@ class HostCommGraph:
     # -- windowed dataset ---------------------------------------------------
     def build_windows(self, flows: pd.DataFrame,
                       label_column: Optional[str] = "label",
-                      attack_fraction: float = 0.5,
+                      attack_fraction: float = 0.10,
                       scenario_column: Optional[str] = "scenario") -> list[WindowRecord]:
         """
         Split ``flows`` into windows and build one graph per window.
@@ -402,8 +402,8 @@ class HostCommGraph:
                 n_flows=int(len(group)),
                 n_nodes=int(data.num_nodes),
                 n_edges=int(data.edge_index.shape[1]),
-                start=float(group[self.timestamp_column].min()),
-                end=float(group[self.timestamp_column].max()),
+                start=float(group[ts_col].min()),
+                end=float(group[ts_col].max()),
                 attack_fraction=fraction,
                 scenario=(str(group[scenario_column].iloc[0])
                           if scenario_column and scenario_column in group.columns
