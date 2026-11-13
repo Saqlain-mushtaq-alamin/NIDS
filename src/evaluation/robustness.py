@@ -626,61 +626,44 @@ class FeatureSpaceAttacker:
         bounds_min = self.get_scaled_lower_bounds(X_arr.shape[1], device=device)
         bounds_min_np = bounds_min.numpy().flatten() if bounds_min is not None else None
 
-        has_proba = hasattr(target_model, "predict_proba")
-        benign_col_idx = 0
-        if has_proba and hasattr(target_model, "classes_"):
-            classes = list(target_model.classes_)
-            if benign_label in classes:
-                benign_col_idx = classes.index(benign_label)
-            elif 0 in classes:
-                benign_col_idx = classes.index(0)
+        # Vectorized batch evaluation over attack flows
+        X_attack = X_adv[attack_indices].copy()
+        current_preds = target_model.predict(X_attack)
+        evaded_mask = (current_preds == benign_label) | (current_preds == 0)
 
         step_fractions = np.linspace(0.2, 1.0, min(steps, 5)) * epsilon
 
-        for idx in attack_indices:
-            sample = X_adv[idx].copy()
+        for feat_idx in controllable_indices:
+            if np.all(evaded_mask):
+                break
 
-            initial_pred = target_model.predict(sample.reshape(1, -1))[0]
-            if initial_pred == benign_label or initial_pred == 0:
-                continue
-
-            best_sample = sample.copy()
-            best_benign_score = (
-                target_model.predict_proba(sample.reshape(1, -1))[0, benign_col_idx]
-                if has_proba
-                else 0.0
-            )
-
-            for feat_idx in controllable_indices:
-                for step_val in step_fractions:
-                    candidate = sample.copy()
-                    candidate[feat_idx] += step_val
-
-                    if bounds_min_np is not None:
-                        candidate[feat_idx] = max(candidate[feat_idx], bounds_min_np[feat_idx])
-
-                    if self.scaler is not None and self.feature_names is not None:
-                        cand_t = self._round_discrete_features(
-                            torch.tensor(candidate, dtype=torch.float32).unsqueeze(0)
-                        )
-                        candidate = cand_t.numpy().flatten()
-
-                    pred = target_model.predict(candidate.reshape(1, -1))[0]
-                    if pred == benign_label or pred == 0:
-                        best_sample = candidate
-                        break
-
-                    if has_proba:
-                        score = target_model.predict_proba(candidate.reshape(1, -1))[0, benign_col_idx]
-                        if score > best_benign_score:
-                            best_benign_score = score
-                            best_sample = candidate
-
-                current_pred = target_model.predict(best_sample.reshape(1, -1))[0]
-                if current_pred == benign_label or current_pred == 0:
+            for step_val in step_fractions:
+                un_evaded = ~evaded_mask
+                if not np.any(un_evaded):
                     break
 
-            X_adv[idx] = best_sample
+                candidate = X_attack.copy()
+                candidate[un_evaded, feat_idx] += step_val
+
+                if bounds_min_np is not None:
+                    candidate[:, feat_idx] = np.maximum(candidate[:, feat_idx], bounds_min_np[feat_idx])
+
+                if self.scaler is not None and self.feature_names is not None:
+                    cand_t = self._round_discrete_features(
+                        torch.tensor(candidate, dtype=torch.float32)
+                    )
+                    candidate = cand_t.numpy()
+
+                test_preds = target_model.predict(candidate[un_evaded])
+                newly_evaded = (test_preds == benign_label) | (test_preds == 0)
+
+                if np.any(newly_evaded):
+                    un_evaded_indices = np.where(un_evaded)[0]
+                    success_indices = un_evaded_indices[newly_evaded]
+                    X_attack[success_indices] = candidate[success_indices]
+                    evaded_mask[success_indices] = True
+
+        X_adv[attack_indices] = X_attack
 
         clean_preds = target_model.predict(X_arr)
         adv_preds = target_model.predict(X_adv)
