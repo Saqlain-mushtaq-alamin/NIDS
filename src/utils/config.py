@@ -7,6 +7,8 @@ import yaml
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+DEFAULT_SEEDS = [42, 123, 456, 789, 1024]
+
 
 class ConfigDict(dict):
     """Dictionary subclass supporting attribute dot notation."""
