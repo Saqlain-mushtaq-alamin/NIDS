@@ -288,3 +288,52 @@ class TestBookkeeping:
         assert "10.0.0.9" in " ".join(block)
         assert "10.0.0.9" in " ".join(unblock)
         assert unblock[0] == block[0]
+
+
+class TestMixedStreamReplay:
+    def test_mixed_stream_metrics_accurately_recorded(self):
+        from src.response import replay_mixed_stream
+
+        events = [
+            # 3 benign hosts with low confidence -> LOG_ONLY
+            {"source_ip": "10.0.0.1", "true_label": "Benign", "label": "Benign", "confidence": 0.3, "severity": "LOW"},
+            {"source_ip": "10.0.0.2", "true_label": "Benign", "label": "Benign", "confidence": 0.4, "severity": "LOW"},
+            {"source_ip": "10.0.0.3", "true_label": "Benign", "label": "Benign", "confidence": 0.2, "severity": "LOW"},
+            # 2 DoS attacks with high confidence -> BLOCK
+            {"source_ip": "10.0.0.50", "true_label": "DoS", "label": "DoS", "confidence": 0.95, "severity": "HIGH"},
+            {"source_ip": "10.0.0.51", "true_label": "DoS", "label": "DoS", "confidence": 0.92, "severity": "HIGH"},
+            # 1 PortScan with medium confidence -> RATE_LIMIT
+            {"source_ip": "10.0.0.60", "true_label": "PortScan", "label": "PortScan", "confidence": 0.75, "severity": "MEDIUM"},
+        ]
+
+        engine = ResponseEngine(max_blocks_per_minute=5, dry_run=True)
+        summary = replay_mixed_stream(events, engine=engine)
+        engine.shutdown()
+
+        assert summary["n_events"] == 6
+        assert summary["n_attack_events"] == 3
+        assert summary["n_benign_events"] == 3
+        assert summary["attacks_mitigated"] == 3
+        assert summary["attacks_blocked"] == 2
+        assert summary["attacks_rate_limited"] == 1
+        assert summary["benign_events_wrongly_blocked"] == 0
+        assert summary["n_benign_hosts_wrongly_blocked"] == 0
+        assert summary["attacks_downgraded_by_rate_limiter"] == 0
+
+    def test_mixed_stream_rate_limiter_downgrades_bursts(self):
+        from src.response import replay_mixed_stream
+
+        # 4 attack hosts against a budget of 2 blocks per minute
+        events = [
+            {"source_ip": f"10.0.0.{100 + i}", "true_label": "DoS", "label": "DoS", "confidence": 0.99, "severity": "HIGH"}
+            for i in range(4)
+        ]
+
+        engine = ResponseEngine(max_blocks_per_minute=2, dry_run=True)
+        summary = replay_mixed_stream(events, engine=engine)
+        engine.shutdown()
+
+        assert summary["attacks_blocked"] == 2
+        assert summary["attacks_downgraded_by_rate_limiter"] == 2
+        assert summary["attacks_mitigated"] == 2
+
