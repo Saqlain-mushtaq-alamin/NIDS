@@ -228,3 +228,71 @@ class TestFusionExperiment:
         # exfiltration regime it genuinely recognises.
         assert volumetric["graph_score"].mean() < 0.6 * exfil["graph_score"].mean()
         assert frame["is_anomaly"].sum() > 500
+
+    def test_synthetic_experiment_is_marked_demo(self):
+        from src.models.fusion import run_fusion_experiment
+        res = run_fusion_experiment(seed=42, n_flows=100)
+        assert res.is_demo is True
+        assert any("demo" in note.lower() for note in res.notes)
+
+
+class TestECDFCalibrator:
+    """Empirical CDF calibration on benign validation errors."""
+
+    def test_calibrates_to_percentiles(self):
+        from src.models.fusion import ECDFScoreCalibrator
+        cal = ECDFScoreCalibrator().fit([10.0, 20.0, 30.0, 40.0])
+        transformed = cal.transform([5.0, 15.0, 25.0, 35.0, 45.0])
+        assert transformed[0] == pytest.approx(0.0)
+        assert transformed[1] == pytest.approx(0.25)
+        assert transformed[2] == pytest.approx(0.50)
+        assert transformed[3] == pytest.approx(0.75)
+        assert transformed[4] == pytest.approx(1.0)
+
+    def test_rejects_empty_fit(self):
+        from src.models.fusion import ECDFScoreCalibrator
+        with pytest.raises(ValueError):
+            ECDFScoreCalibrator().fit([])
+
+    def test_fusion_uses_calibrator_when_supplied(self):
+        from src.models.fusion import DetectionFusion, ECDFScoreCalibrator
+        cal = ECDFScoreCalibrator().fit([100.0, 200.0])
+        fusion = DetectionFusion(calibrator=cal)
+        result = fusion.fuse(anomaly_score=[50.0, 250.0], graph_score=[0.1, 0.9])
+        assert result.predictions["anomaly_score"].iloc[0] == pytest.approx(0.0)
+        assert result.predictions["anomaly_score"].iloc[1] == pytest.approx(1.0)
+
+
+class TestRealFusionExperiment:
+    """Fusion of real Autoencoder scores and GNN window scores."""
+
+    def test_real_fusion_execution(self):
+        import pandas as pd
+        from src.models.fusion import run_real_fusion_experiment, FUSION_COLUMNS
+
+        # Mock AE
+        class MockAE:
+            def reconstruction_error(self, X):
+                return np.linspace(0.1, 5.0, len(X))
+
+        # Mock GNN
+        class MockGNN:
+            def predict_proba(self, windows):
+                return np.full((len(windows), 2), 0.7)
+
+        df = pd.DataFrame({
+            "src_ip": ["192.168.1.1"] * 20 + ["192.168.1.2"] * 20,
+            "dst_ip": ["10.0.0.1"] * 40,
+            "timestamp": np.linspace(100.0, 200.0, 40),
+            "flow_duration": [10.0] * 40,
+            "total_fwd_packets": [5] * 40,
+            "total_length_of_fwd_packets": [100] * 40,
+            "dst_port": [80] * 40,
+            "label": ["Benign"] * 20 + ["Attack"] * 20,
+        })
+
+        result = run_real_fusion_experiment(df, ae_detector=MockAE(), gnn_classifier=MockGNN())
+        assert result.is_demo is False
+        assert set(FUSION_COLUMNS) <= set(result.predictions.columns)
+        assert len(result.predictions) == 40
+        assert "confidence" in result.predictions.columns

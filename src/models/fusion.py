@@ -166,7 +166,8 @@ class DetectionFusion:
     """
 
     def __init__(self, anomaly_weight: float = 0.6, graph_weight: float = 0.4,
-                 review_band: float = 0.2, escalate_review: bool = True):
+                 review_band: float = 0.2, escalate_review: bool = True,
+                 calibrator: Optional[ECDFScoreCalibrator] = None):
         if anomaly_weight < 0 or graph_weight < 0:
             raise ValueError("fusion weights must be non-negative")
         if anomaly_weight + graph_weight <= 0:
@@ -177,6 +178,7 @@ class DetectionFusion:
         self.graph_weight = float(graph_weight)
         self.review_band = float(review_band)
         self.escalate_review = bool(escalate_review)
+        self.calibrator = calibrator
 
     # -- helpers ------------------------------------------------------------
     @property
@@ -205,27 +207,30 @@ class DetectionFusion:
                     graph_score: Sequence[float],
                     normalise_anomaly: bool = True,
                     normalise_graph: bool = False,
-                    graph_available: bool = True) -> np.ndarray:
+                    graph_available: bool = True,
+                    calibrator: Optional[ECDFScoreCalibrator] = None) -> np.ndarray:
         """
         Return the weighted combined score in ``[0, 1]``.
 
         Args:
             anomaly_score: Per-flow reconstruction-error scores.
             graph_score: Structural scores.
-            normalise_anomaly: Min-max scale the per-flow view.  Reconstruction
-                errors are unbounded and have no absolute meaning, so they must
-                be calibrated against the batch before they can be compared to
-                a probability.
+            normalise_anomaly: Min-max scale the per-flow view when no calibrator
+                is present.
             normalise_graph: Leave ``False``.  The GNN view already emits
-                calibrated probabilities in ``[0, 1]``; rescaling them across a
-                batch would make one anomalous window inflate the scores of
-                every other window in the batch.
+                calibrated probabilities in ``[0, 1]``.
             graph_available: When ``False`` the structural view is treated as
                 absent and all weight goes to the per-flow view.
+            calibrator: Optional ECDF calibrator fitted on benign validation errors.
+                When provided, it transforms anomaly scores into empirical CDF
+                percentiles in [0, 1].
         """
+        cal = calibrator if calibrator is not None else self.calibrator
         anomaly = np.asarray(anomaly_score, dtype=np.float64)
         graph = np.asarray(graph_score, dtype=np.float64)
-        if normalise_anomaly:
+        if cal is not None:
+            anomaly = cal.transform(anomaly)
+        elif normalise_anomaly:
             anomaly = _normalise(anomaly)
         if normalise_graph:
             graph = _normalise(graph)
@@ -245,7 +250,8 @@ class DetectionFusion:
              timestamps: Optional[Sequence] = None,
              reconstruction_error: Optional[Sequence[float]] = None,
              gnn_probability: Optional[Sequence[float]] = None,
-             labels: Optional[Sequence] = None) -> FusionResult:
+             labels: Optional[Sequence] = None,
+             calibrator: Optional[ECDFScoreCalibrator] = None) -> FusionResult:
         """
         Produce one fused decision per flow.
 
@@ -264,6 +270,7 @@ class DetectionFusion:
                 auditability.
             labels: Optional ground-truth labels, carried through for scoring
                 **after** the decision is made — never used to pick a decision.
+            calibrator: Optional empirical CDF calibrator.
 
         Returns:
             A :class:`FusionResult`.
@@ -277,6 +284,12 @@ class DetectionFusion:
             raise ValueError("fuse() received no flows")
         if not np.isfinite(anomaly_raw).any():
             raise ValueError("anomaly_score contains no finite values")
+
+        cal = calibrator if calibrator is not None else self.calibrator
+        if cal is not None:
+            calibrated_anomaly = cal.transform(anomaly_raw)
+        else:
+            calibrated_anomaly = _normalise(anomaly_raw) if anomaly_raw.size > 1 else anomaly_raw
 
         graph_available = graph_score is not None
         if not graph_available:
@@ -295,15 +308,15 @@ class DetectionFusion:
                              "treated the structural view as neutral")
                 graph_available = False
 
-        fused = self.fused_score(anomaly_raw, graph_raw,
+        fused = self.fused_score(calibrated_anomaly, graph_raw,
+                                 normalise_anomaly=False,
                                  graph_available=graph_available)
 
         # The two views are compared against 0.5 using the same calibration as
         # the fused score, so a column and the decision it explains can never
         # disagree. With no structural view there is nothing to disagree with,
         # so agreement is assumed rather than manufactured.
-        anomaly_flag = (_normalise(anomaly_raw) if anomaly_raw.size > 1
-                        else anomaly_raw) >= 0.5
+        anomaly_flag = calibrated_anomaly >= 0.5
         graph_flag = graph_raw >= 0.5
         agree = (anomaly_flag == graph_flag) if graph_available else np.ones(
             n_flows, dtype=bool)
@@ -343,8 +356,7 @@ class DetectionFusion:
             "needs_review": needs_review,
             "confidence": fused,
             "detection_source": source,
-            "anomaly_score": (_normalise(anomaly_raw) if anomaly_raw.size > 1
-                              else anomaly_raw),
+            "anomaly_score": calibrated_anomaly,
             "graph_score": graph_raw,
             "reconstruction_error": (
                 np.asarray(reconstruction_error, dtype=np.float64).ravel()
@@ -424,12 +436,17 @@ class DetectionFusion:
 
 def run_fusion_experiment(seed: int = 42, n_flows: int = 2000) -> FusionResult:
     """
-    Build a synthetic stream and fuse the two detector views over it.
+    DEMO ONLY: Build a synthetic stream and fuse the two detector views over it.
 
     The per-flow view reacts to high-volume single flows; the structural view
     reacts to collective behaviour spread across many individually-normal
-    flows.  Both score the same stream and their fusion is returned with ground
+    flows. Both score the same stream and their fusion is returned with ground
     truth attached for scoring.
+
+    Note:
+        This function uses synthetic Gaussian distributions and is retained
+        strictly for demonstration and unit test backwards-compatibility.
+        For scientifically valid headline results, use `run_real_fusion_experiment`.
     """
     rng = np.random.default_rng(seed)
     n = int(n_flows)
@@ -452,16 +469,151 @@ def run_fusion_experiment(seed: int = 42, n_flows: int = 2000) -> FusionResult:
                                          size=truth[volumetric].sum())
 
     labels = np.where(truth == 1, "Attack", "Benign")
-    return DetectionFusion().fuse(anomaly_score, graph_score,
-                                  flow_id=list(range(n)), labels=labels)
+    res = DetectionFusion().fuse(anomaly_score, graph_score,
+                                 flow_id=list(range(n)), labels=labels)
+    res.is_demo = True
+    res.notes.append("DEMO ONLY: Synthetic Gaussian stream experiment; not for scientific evaluation.")
+    return res
+
+
+demo_run_fusion_experiment = run_fusion_experiment
+
+
+def run_real_fusion_experiment(flows_df: pd.DataFrame,
+                               ae_detector,
+                               gnn_classifier=None,
+                               calibrator: Optional[ECDFScoreCalibrator] = None,
+                               graph_builder=None,
+                               preprocessor=None,
+                               anomaly_weight: float = 0.6,
+                               graph_weight: float = 0.4,
+                               review_band: float = 0.2,
+                               seed: int = 42) -> FusionResult:
+    """
+    Run fusion of REAL Autoencoder scores and REAL GNN window scores on real flow data (PHASE_3 3.4).
+
+    Scores real flows with the real AE, real windows with the real GNN,
+    calibrates per-flow reconstruction errors against benign validation data via ECDF,
+    and combines both views with DetectionFusion.
+
+    Parameters
+    ----------
+    flows_df : pd.DataFrame
+        Real flow DataFrame with network features and IP metadata.
+    ae_detector : AnomalyDetector or BaselineAnomalyModels
+        Trained anomaly detector.
+    gnn_classifier : WindowGNNClassifier or DegreeLogisticBaseline, optional
+        Trained graph window classifier.
+    calibrator : ECDFScoreCalibrator, optional
+        Calibrator fitted on benign validation errors. If None, fitted on benign flows from flows_df.
+    graph_builder : HostCommGraph, optional
+        Host communication graph builder.
+    """
+    from src.models.gnn_detector import HostCommGraph
+
+    flows = flows_df.copy()
+    builder = graph_builder or HostCommGraph(window_seconds=60)
+    merged_flows = builder._merge_metadata(flows)
+
+    # 1. Flow feature matrix & AE scoring
+    if preprocessor is not None:
+        X_mat, _ = preprocessor.transform(flows)
+    else:
+        numeric_cols = flows.select_dtypes(include=[np.number]).columns
+        X_mat = flows[numeric_cols].to_numpy(dtype=np.float32)
+
+    X_mat = np.where(np.isfinite(X_mat), X_mat, 0.0)
+
+    if hasattr(ae_detector, "reconstruction_error"):
+        raw_errors = ae_detector.reconstruction_error(X_mat)
+    elif hasattr(ae_detector, "score_samples"):
+        model_name = getattr(ae_detector, "active_model", "PCA")
+        raw_errors = ae_detector.score_samples(model_name, X_mat)
+    else:
+        raise ValueError("ae_detector must have reconstruction_error or score_samples")
+
+    raw_errors = np.asarray(raw_errors, dtype=np.float64).ravel()
+
+    # 2. ECDF Calibration on benign validation data
+    if calibrator is None:
+        label_col = "label" if "label" in flows.columns else None
+        if label_col:
+            benign_mask = flows[label_col].astype(str).str.lower() == "benign"
+            benign_errors = raw_errors[benign_mask] if benign_mask.any() else raw_errors[:max(10, len(raw_errors) // 2)]
+        else:
+            benign_errors = raw_errors[:max(10, len(raw_errors) // 2)]
+        calibrator = ECDFScoreCalibrator().fit(benign_errors)
+
+    calibrated_anomaly = calibrator.transform(raw_errors)
+
+    # 3. GNN / Graph window scoring
+    n_flows = len(flows)
+    graph_scores = np.zeros(n_flows, dtype=np.float64)
+    graph_available = False
+
+    if gnn_classifier is not None:
+        try:
+            windows = builder.build_windows(flows, label_column="label" if "label" in flows.columns else None)
+            if len(windows) > 0:
+                if hasattr(gnn_classifier, "predict_proba"):
+                    probs = gnn_classifier.predict_proba(windows)
+                    if hasattr(probs, "ndim") and probs.ndim == 2:
+                        attack_probs = probs[:, 1]
+                    else:
+                        attack_probs = np.asarray(probs, dtype=np.float64)
+                else:
+                    eval_res = gnn_classifier.evaluate(windows)
+                    attack_probs = np.asarray(eval_res.probabilities, dtype=np.float64).ravel()
+
+                win_id_to_prob = {win.window_id: float(p) for win, p in zip(windows, attack_probs)}
+
+                ts_col = builder.timestamp_column
+                if ts_col not in merged_flows.columns:
+                    for candidate in ("Timestamp", "timestamp", "stime", "time", "timestamp_start"):
+                        if candidate in merged_flows.columns:
+                            ts_col = candidate
+                            break
+
+                if ts_col in merged_flows.columns:
+                    win_indices = builder.window_index(merged_flows[ts_col])
+                    graph_scores = np.array([win_id_to_prob.get(w_idx, 0.0) for w_idx in win_indices], dtype=np.float64)
+                    graph_available = True
+        except Exception:
+            graph_available = False
+
+    # 4. Ground truth labels
+    true_labels = None
+    if "label" in flows.columns:
+        true_labels = np.where(flows["label"].astype(str).str.lower() == "benign", "Benign", "Attack")
+
+    fusion = DetectionFusion(
+        anomaly_weight=anomaly_weight,
+        graph_weight=graph_weight,
+        review_band=review_band,
+        calibrator=calibrator,
+    )
+
+    result = fusion.fuse(
+        anomaly_score=calibrated_anomaly,
+        graph_score=graph_scores if graph_available else None,
+        flow_id=list(range(n_flows)),
+        reconstruction_error=raw_errors,
+        gnn_probability=graph_scores if graph_available else None,
+        labels=true_labels,
+    )
+    result.is_demo = False
+    return result
 
 
 __all__ = [
     "DetectionFusion",
+    "ECDFScoreCalibrator",
     "FUSION_COLUMNS",
     "FusionResult",
     "LABEL_ATTACK",
     "LABEL_BENIGN",
     "LABEL_REVIEW",
+    "demo_run_fusion_experiment",
     "run_fusion_experiment",
+    "run_real_fusion_experiment",
 ]
