@@ -16,6 +16,8 @@ from src.explainability.attribution import (
     align_attributions,
     feature_description,
     rank_features,
+    ground_truth_precision_at_k,
+    evaluate_generator_feature_recovery,
 )
 from src.explainability.deeplift_explainer import DeepLIFTExplainer
 from src.explainability.faithfulness import (
@@ -23,6 +25,10 @@ from src.explainability.faithfulness import (
     compare_explainers,
     deletion_auc,
     deletion_curve,
+    insertion_auc,
+    insertion_curve,
+    random_ranking_control,
+    paired_effect_size_ci,
 )
 from src.explainability.shap_explainer import SHAPExplainer
 from src.explainability.tiered_explanation import TieredExplanation, build_alert
@@ -37,6 +43,12 @@ __all__ = [
     "compare_explainers",
     "deletion_auc",
     "deletion_curve",
+    "insertion_auc",
+    "insertion_curve",
+    "random_ranking_control",
+    "paired_effect_size_ci",
+    "ground_truth_precision_at_k",
+    "evaluate_generator_feature_recovery",
     "feature_description",
     "rank_features",
 ]
