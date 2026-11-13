@@ -27,12 +27,21 @@ ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "src" / "dashboard" / "app.py"
 
 
-def _can_bind_loopback() -> bool:
+def _can_connect_loopback() -> bool:
+    """Test whether loopback TCP connect works (blocked in sandboxed environments)."""
     import socket
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(0.2)
         s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+        c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        c.settimeout(0.2)
+        c.connect(("127.0.0.1", port))
+        conn, _ = s.accept()
+        conn.close()
+        c.close()
         s.close()
         return True
     except Exception:
@@ -50,7 +59,7 @@ class TestPlanTest46:
         assert "render_response_actions" in content
 
     def test_dashboard_launches_as_a_streamlit_app(self):
-        if not _can_bind_loopback():
+        if not _can_connect_loopback():
             pytest.skip("Loopback socket creation not permitted in this environment")
         exe = shutil.which("streamlit")
         if exe is None:
