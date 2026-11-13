@@ -1065,6 +1065,76 @@ class WindowGNNClassifier:
         return wrapper
 
 
+class DegreeLogisticBaseline:
+    """
+    Degree-only Logistic Regression baseline for window classification.
+
+    Extracts graph node degree summaries (mean, max, std of in/out degrees,
+    total nodes, total edges) per window and fits Logistic Regression.
+    Provides the required baseline to verify whether the GNN architecture adds value
+    over purely structural degree heuristics.
+    """
+
+    def __init__(self, seed: int = 42):
+        self.seed = int(seed)
+        self.model_ = None
+        self.scaler_ = None
+
+    def featurize(self, records: Sequence[WindowRecord]) -> np.ndarray:
+        rows = []
+        for r in records:
+            data = r.data
+            x = data.x.numpy() if hasattr(data.x, "numpy") else np.asarray(data.x)
+            in_deg = x[:, 0] if x.shape[1] > 0 else np.array([0.0])
+            out_deg = x[:, 1] if x.shape[1] > 1 else np.array([0.0])
+            n_edges = float(data.edge_index.shape[1]) if hasattr(data, "edge_index") else 0.0
+            n_nodes = float(data.num_nodes) if hasattr(data, "num_nodes") else float(len(x))
+            row = [
+                float(in_deg.mean()), float(in_deg.max()), float(in_deg.std()),
+                float(out_deg.mean()), float(out_deg.max()), float(out_deg.std()),
+                n_nodes, n_edges,
+            ]
+            rows.append(row)
+        return np.asarray(rows, dtype=np.float64)
+
+    def fit(self, train_records: Sequence[WindowRecord]) -> "DegreeLogisticBaseline":
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.preprocessing import StandardScaler
+
+        X_tr = self.featurize(train_records)
+        y_tr = np.array([r.is_attack for r in train_records], dtype=int)
+        self.scaler_ = StandardScaler()
+        X_scaled = self.scaler_.fit_transform(X_tr)
+        self.model_ = LogisticRegression(max_iter=1000, random_state=self.seed)
+        self.model_.fit(X_scaled, y_tr)
+        return self
+
+    def predict(self, records: Sequence[WindowRecord]) -> np.ndarray:
+        X = self.featurize(records)
+        return self.model_.predict(self.scaler_.transform(X))
+
+    def predict_proba(self, records: Sequence[WindowRecord]) -> np.ndarray:
+        X = self.featurize(records)
+        probs = self.model_.predict_proba(self.scaler_.transform(X))
+        if probs.shape[1] > 1:
+            return probs[:, 1]
+        return probs[:, 0]
+
+    def evaluate(self, test_records: Sequence[WindowRecord]) -> dict:
+        from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+
+        y_true = np.array([r.is_attack for r in test_records], dtype=int)
+        preds = self.predict(test_records)
+        probs = self.predict_proba(test_records)
+        return {
+            "name": "degree_logistic_regression",
+            "accuracy": float(accuracy_score(y_true, preds)),
+            "f1": float(f1_score(y_true, preds, zero_division=0)),
+            "roc_auc": float(roc_auc_score(y_true, probs)) if len(np.unique(y_true)) > 1 else float("nan"),
+            "n_test_windows": len(test_records),
+        }
+
+
 def split_windows(records: Sequence[WindowRecord], test_fraction: float = 0.25,
                   seed: int = 42) -> tuple[list[WindowRecord], list[WindowRecord]]:
     """
@@ -1099,6 +1169,7 @@ def split_windows(records: Sequence[WindowRecord], test_fraction: float = 0.25,
 
 __all__ = [
     "ATTACK_LABELS",
+    "DegreeLogisticBaseline",
     "EDGE_FEATURES",
     "EdgeAttributeEncoder",
     "GNNDetector",
