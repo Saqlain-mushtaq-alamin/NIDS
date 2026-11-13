@@ -42,7 +42,7 @@ from collections import Counter, deque
 from pathlib import Path
 from typing import Optional, Union
 
-__all__ = ["ResponseEngine", "LOG_ONLY", "RATE_LIMIT", "BLOCK"]
+__all__ = ["ResponseEngine", "LOG_ONLY", "RATE_LIMIT", "BLOCK", "replay_mixed_stream"]
 
 LOG_ONLY = "LOG_ONLY"
 RATE_LIMIT = "RATE_LIMIT"
