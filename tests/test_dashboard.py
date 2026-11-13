@@ -149,7 +149,7 @@ class TestAppRender:
 
     @pytest.fixture(autouse=True)
     def check_loopback(self):
-        if not _can_bind_loopback():
+        if not _can_connect_loopback():
             pytest.skip("Loopback socket creation not permitted in this environment")
 
     def _run(self):
