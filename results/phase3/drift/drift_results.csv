@@ -1,0 +1,4 @@
+scenario,seed,source,target,n_samples,control_alerts,control_false_alarm_rate,drift_alerts,detection_delay_flows,alerted_features
+cic_temporal_drift,42,cic-ids-2017,cic-ids-2017_temporal,1500,0,0.0,12,43,Bwd IAT Max;Flow IAT Max;Fwd IAT Max;Fwd IAT Mean;Idle Max;Idle Mean
+cross_dataset_drift,42,cic-ids-2017,unsw-nb15,1500,0,0.0,6,11,flow_iat_mean;total_length_of_bwd_packets;total_length_of_fwd_packets
+synthetic_drift,42,synthetic_baseline,synthetic_drifting,1200,0,0.0,4,7,synthetic
