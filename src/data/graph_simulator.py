@@ -162,24 +162,23 @@ def _benign_window(rng: np.random.Generator, hosts: Sequence[str], start: float,
 
 
 def _port_scan_window(rng: np.random.Generator, hosts: Sequence[str], start: float,
-                      window_seconds: int, n_flows: int, window_id: int) -> list[dict]:
-    """One scanner fans out to many hosts and ports inside a single window."""
-    rows = []
-    # The scanner is randomised per window: a fixed scanner host would let the
-    # classifier memorise an address instead of learning the fan-out structure,
-    # which is the property the module is supposed to capture.
+                      window_seconds: int, n_flows: int, window_id: int,
+                      attack_ratio: float = 0.20) -> list[dict]:
+    """One scanner fans out to many hosts and ports, mixed into benign background traffic."""
+    n_attack = max(3, int(n_flows * attack_ratio))
+    n_benign = max(5, n_flows - n_attack)
+    rows = _benign_window(rng, hosts, start, window_seconds, n_benign, window_id)
+
     scanner = hosts[int(rng.integers(0, len(hosts)))]
     others = [host for host in hosts if host != scanner]
-    n_targets = max(4, min(len(others), n_flows))
+    n_targets = max(4, min(len(others), n_attack))
     targets = [others[int(i)] for i in
                rng.choice(len(others), size=min(n_targets, len(others)),
                           replace=False)]
 
-    for index in range(n_flows):
+    for index in range(n_attack):
         target = targets[index % len(targets)]
         flow = tm.sample_flow(rng, "PortScan")
-        # Every probe gets its own ephemeral source port and a distinct
-        # destination port, which is what makes the fan-out visible.
         offset = float(rng.uniform(0.0, window_seconds * 0.95))
         row = _flow_row(rng, flow, scanner, target,
                         int(rng.integers(40000, 60000)), start + offset,
@@ -191,28 +190,23 @@ def _port_scan_window(rng: np.random.Generator, hosts: Sequence[str], start: flo
 
 def _lateral_movement_window(rng: np.random.Generator, hosts: Sequence[str],
                              start: float, window_seconds: int, n_flows: int,
-                             window_id: int) -> list[dict]:
-    """
-    A sequential chain of hosts, each contacting the next.
+                             window_id: int, attack_ratio: float = 0.20) -> list[dict]:
+    """A sequential chain of hosts, mixed into benign background traffic."""
+    n_attack = max(3, int(n_flows * attack_ratio))
+    n_benign = max(5, n_flows - n_attack)
+    rows = _benign_window(rng, hosts, start, window_seconds, n_benign, window_id)
 
-    Consecutive windows start from a different pivot so the model cannot
-    memorise a fixed path; every *individual* edge looks like benign traffic,
-    which is precisely why the pattern only exists at the graph level.
-    """
-    rows = []
     n_hosts = len(hosts)
-    chain_len = max(3, min(n_hosts, n_flows // 4))
+    chain_len = max(3, min(n_hosts, n_attack // 2))
     pivot = int(rng.integers(0, n_hosts))
     order = [(pivot + step) % n_hosts for step in range(chain_len)]
 
-    per_hop = max(1, n_flows // chain_len)
+    per_hop = max(1, n_attack // max(chain_len - 1, 1))
     for hop in range(chain_len - 1):
         source = hosts[order[hop]]
         target = hosts[order[hop + 1]]
         for _ in range(per_hop):
             flow = tm.sample_flow(rng, "Infiltration")
-            # Hops are spread across the window so the traversal is *ordered in
-            # time* as well as in structure.
             offset = window_seconds * (hop / max(chain_len - 1, 1))
             offset += float(rng.uniform(0.0, window_seconds / max(chain_len, 2) * 0.4))
             rows.append(_flow_row(rng, flow, source, target,
@@ -223,14 +217,15 @@ def _lateral_movement_window(rng: np.random.Generator, hosts: Sequence[str],
 
 def _exfiltration_window(rng: np.random.Generator, hosts: Sequence[str],
                          start: float, window_seconds: int, n_flows: int,
-                         window_id: int) -> list[dict]:
-    """One internal host pushes a large volume to a single external host."""
-    rows = []
+                         window_id: int, attack_ratio: float = 0.20) -> list[dict]:
+    """One internal host pushes a large volume to a single external host, mixed into benign background."""
+    n_attack = max(3, int(n_flows * attack_ratio))
+    n_benign = max(5, n_flows - n_attack)
+    rows = _benign_window(rng, hosts, start, window_seconds, n_benign, window_id)
+
     source = hosts[int(rng.integers(0, len(hosts)))]
-    for _ in range(n_flows):
+    for _ in range(n_attack):
         flow = tm.sample_flow(rng, "Infiltration")
-        # Inflate the forward payload by an order of magnitude: the anomaly is
-        # volume on one edge, not the number of edges.
         flow["fwd_lengths"] = [length * 12.0 for length in flow["fwd_lengths"]]
         flow["bwd_lengths"] = [length * 0.2 for length in flow["bwd_lengths"]]
         offset = float(rng.uniform(0.0, window_seconds * 0.95))
