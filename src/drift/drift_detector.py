@@ -98,6 +98,7 @@ class DriftAlert:
     kind: str
     timestamp: Optional[object] = None
     window: Optional[int] = None
+    sample_index: Optional[int] = None
     reference_mean: Optional[float] = None
     current_mean: Optional[float] = None
     psi: Optional[float] = None
@@ -113,6 +114,7 @@ class DriftAlert:
             "kind": self.kind,
             "timestamp": self.timestamp,
             "window": self.window,
+            "sample_index": self.sample_index,
             "reference_mean": self.reference_mean,
             "current_mean": self.current_mean,
             "psi": self.psi,
@@ -145,11 +147,15 @@ class DriftMonitorReport:
     alerts: list[DriftAlert] = field(default_factory=list)
     feature_stats: Optional[pd.DataFrame] = None
     detection_rate: Optional[float] = None
+    detection_delay: Optional[int] = None
+    false_alarm_rate: Optional[float] = None
 
     def to_dict(self) -> dict:
         return {
             "n_samples": self.n_samples,
             "n_alerts": self.n_alerts,
+            "detection_delay": self.detection_delay,
+            "false_alarm_rate": self.false_alarm_rate,
             "detection_rate": self.detection_rate,
             "alerts": [alert.to_dict() for alert in self.alerts],
             "feature_stats": (self.feature_stats.to_dict("records")
