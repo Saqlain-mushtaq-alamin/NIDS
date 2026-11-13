@@ -469,6 +469,7 @@ class DriftDetector:
                        if timestamps is not None and fired_at is not None
                        else (timestamps[-1] if timestamps is not None else None)),
             window=int(getattr(detector, "width", 0)),
+            sample_index=fired_at,
             current_mean=current,
             direction=direction,
             severity="medium",
