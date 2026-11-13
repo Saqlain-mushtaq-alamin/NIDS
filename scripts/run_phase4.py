@@ -1105,6 +1105,20 @@ def _build_gates(report: dict, quick: bool) -> dict:
         "detail": (f"manual rollback={rollback.get('succeeded')}, "
                    f"ttl expiry={ttl.get('succeeded')}")}
 
+    cal = response.get("calibration") or {}
+    gates["G4.8_confidence_calibration"] = {
+        "pass": bool(cal.get("calibration_improved")),
+        "detail": (f"ECE before={cal.get('ece_before_calibration', 0.0):.4f}, "
+                   f"after={cal.get('ece_after_calibration', 0.0):.4f} "
+                   f"(T={cal.get('fitted_temperature', 1.0):.2f})")}
+
+    replay = response.get("mixed_stream_replay") or {}
+    gates["G4.9_mixed_stream_safety"] = {
+        "pass": replay.get("n_events", 0) > 0 and replay.get("benign_block_rate", 1.0) < 0.05,
+        "detail": (f"mitigated {replay.get('attacks_mitigated')}/{replay.get('n_attack_events')} attacks, "
+                   f"wrongly blocked {replay.get('n_benign_hosts_wrongly_blocked')} benign hosts "
+                   f"(rate {replay.get('benign_block_rate', 0.0):.2%})")}
+
     return gates
 
 
@@ -1201,10 +1215,18 @@ def main(argv=None) -> int:
 
     faithful = report["components"].get("faithfulness")
     if faithful:
-        print(f"Faithfulness       SHAP {faithful['shap_mean_deletion_auc']:.4f} vs "
-              f"DeepLIFT {faithful['deeplift_mean_deletion_auc']:.4f} "
-              f"(lower = better), p={faithful['p_value']}")
+        print(f"Faithfulness       KernelSHAP {faithful['shap_mean_deletion_auc']:.4f} vs "
+              f"DeepLIFT {faithful['deeplift_mean_deletion_auc']:.4f} (lower = better)")
         print(f"  verdict          {faithful['verdict']}")
+        if "treeshap_xgboost" in faithful:
+            ts = faithful["treeshap_xgboost"]
+            print(f"  TreeSHAP (XGB)   deletion AUC {ts['deletion_auc']:.4f} vs random {ts['random_control_deletion_auc']:.4f}")
+            print(f"                   insertion AUC {ts['insertion_auc']:.4f} vs random {ts['random_control_insertion_auc']:.4f}")
+        if "ground_truth_recovery" in faithful:
+            gtr = faithful["ground_truth_recovery"]
+            print(f"  Feature Recovery TreeSHAP p@{gtr['n_informative']}: {gtr['treeshap_precision']['mean_precision']:.3f}, "
+                  f"DeepLIFT: {gtr['deeplift_precision']['mean_precision']:.3f}, "
+                  f"Random: {gtr['random_control_precision']['mean_precision']:.3f}")
 
     if "tiered" in report["components"]:
         coverage = report["components"]["tiered"]["coverage"]
@@ -1216,6 +1238,15 @@ def main(argv=None) -> int:
         response = report["components"]["response"]
         print(f"Response actions   {response['action_counts']} "
               f"(dry_run={response['dry_run']})")
+        if "calibration" in response:
+            cal = response["calibration"]
+            print(f"  Calibration      ECE raw={cal['ece_before_calibration']:.4f} -> "
+                  f"calibrated={cal['ece_after_calibration']:.4f} (T={cal['fitted_temperature']:.3f})")
+        if "mixed_stream_replay" in response:
+            mr = response["mixed_stream_replay"]
+            print(f"  Mixed Stream     mitigated {mr['attacks_mitigated']}/{mr['n_attack_events']} attacks "
+                  f"({mr['attacks_mitigated_rate']:.1%}), {mr['n_benign_hosts_wrongly_blocked']} benign hosts wrongly blocked, "
+                  f"{mr['attacks_downgraded_by_rate_limiter']} downgraded by rate limiter")
         burst = response["burst_test"]
         print(f"  NFR10 burst      {burst['n_blocked']}/{burst['n_attempted']} "
               f"blocked (budget {burst['max_blocks_per_minute']}/min)")
