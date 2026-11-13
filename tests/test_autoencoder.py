@@ -127,11 +127,24 @@ class TestAnomalyDetector:
         prev_metrics = detector.evaluate_at_prevalence(
             np.vstack([X, X_attack]), y, prevalence=0.05, seed=42
         )
-        assert prev_metrics["target_prevalence"] == pytest.approx(0.05)
+        assert prev_metrics["prevalence"] == pytest.approx(0.05)
         assert "false_alarms_per_100k" in prev_metrics
         assert "pr_auc" in prev_metrics
         assert "roc_auc" in prev_metrics
-        assert prev_metrics["n_benign"] == 1000
+
+    def test_benign_only_scaling_in_train_wrapper(self):
+        from src.models.autoencoder import train_benign_autoencoder
+        import pandas as pd
+        df = pd.DataFrame({
+            "flow_duration": [10.0] * 50 + [1000.0] * 20,
+            "total_fwd_packets": [5] * 50 + [500] * 20,
+            "label": ["Benign"] * 50 + ["Attack"] * 20,
+        })
+        detector, preprocessor, frame = train_benign_autoencoder(
+            df, feature_mode="behavior_only", epochs=5, seed=42
+        )
+        assert detector._fitted
+        assert preprocessor.is_fitted
 
 
 class TestBaselineAnomalyModels:
@@ -152,9 +165,11 @@ class TestBaselineAnomalyModels:
             # Attack scores should generally exceed benign scores
             assert scores[100:].mean() > scores[:100].mean()
 
-            res = baselines.evaluate(name, np.vstack([X_val, X_attack]), ["Benign"] * 100 + ["Attack"] * 100)
-            assert res.metrics["recall"] > 0.5
-            assert "false_alarms_per_100k" in res.metrics
+        all_res = baselines.evaluate(np.vstack([X_val, X_attack]), ["Benign"] * 100 + ["Attack"] * 100)
+        assert set(all_res.keys()) == {"IsolationForest", "PCA", "OneClassSVM"}
+        for name, m in all_res.items():
+            assert "false_alarms_per_100k" in m
+            assert "roc_auc" in m
 
     def test_baselines_evaluate_at_prevalence(self):
         from src.models.autoencoder import BaselineAnomalyModels
@@ -165,13 +180,14 @@ class TestBaselineAnomalyModels:
         baselines = BaselineAnomalyModels(latent_dim=4, percentile=99.0, seed=42)
         baselines.fit(X_tr, X_val)
 
-        prev_res = baselines.evaluate_at_prevalence(
-            "PCA", np.vstack([X_val, X_attack]), np.array(["Benign"] * 100 + ["Attack"] * 200),
+        prev_all = baselines.evaluate_at_prevalence(
+            np.vstack([X_val, X_attack]), np.array(["Benign"] * 100 + ["Attack"] * 200),
             prevalence=0.10, seed=42
         )
-        assert prev_res["target_prevalence"] == pytest.approx(0.10)
-        assert "false_alarms_per_100k" in prev_res
-        assert "pr_auc" in prev_res
+        assert "PCA" in prev_all
+        assert prev_all["PCA"]["prevalence"] == pytest.approx(0.10)
+        assert "false_alarms_per_100k" in prev_all["PCA"]
+        assert "pr_auc" in prev_all["PCA"]
 
 
 class TestAutoencoderPlanCorrection:

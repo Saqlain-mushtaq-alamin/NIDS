@@ -1057,25 +1057,23 @@ def train_benign_autoencoder(train_frame: pd.DataFrame, label_column: str = LABE
         feature_mode=kwargs.pop("feature_mode", "behavior_extended"),
         dataset=kwargs.pop("dataset", None),
     )
-    splits = preprocessor.split(train_frame, test_ratio=test_ratio,
-                                val_ratio=val_ratio, seed=seed)
-
-    # Fit scaler strictly on benign training rows
-    train_df = splits["train"]["df"]
-    benign_mask = train_df[label_column].astype(str).str.strip().str.lower() == BENIGN_LABEL.lower()
-    train_benign_df = train_df[benign_mask]
+    benign_mask = train_frame[label_column].astype(str).str.strip().str.lower() == BENIGN_LABEL.lower()
+    train_benign_df = train_frame[benign_mask]
     if len(train_benign_df) == 0:
         raise AutoencoderError("No benign rows in training set to fit scaler.")
     preprocessor.fit(train_benign_df)
 
-    train_X = preprocessor.transform(splits["train"]["df"])
+    splits = preprocessor.split(train_frame, test_ratio=test_ratio,
+                                val_ratio=val_ratio, seed=seed)
+
+    train_X = splits["train"]["X"]
     train_y = splits["train"]["y"]
-    val_X = preprocessor.transform(splits["val"]["df"])
+    val_X = splits["val"]["X"]
     val_y = splits["val"]["y"]
 
     detector = AnomalyDetector(seed=seed, **kwargs)
     detector.fit(train_X, train_y, val_X, val_y)
-    detector.feature_names_ = preprocessor.get_feature_names()
+    detector.feature_names_ = preprocessor.feature_names_
     return detector, preprocessor, train_frame
 
 

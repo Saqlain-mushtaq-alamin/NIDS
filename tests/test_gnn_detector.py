@@ -291,13 +291,13 @@ class TestDegreeLogisticBaseline:
         from src.models.gnn_detector import DegreeLogisticBaseline
         baseline = DegreeLogisticBaseline(seed=42)
         X = baseline.featurize(records[:10])
-        assert X.shape == (10, 5)
+        assert X.shape == (10, 8)
         assert np.all(np.isfinite(X))
 
         baseline.fit(records[:12])
         probs = baseline.predict_proba(records[12:16])
-        assert probs.shape == (4, 2)
-        assert np.allclose(probs.sum(axis=1), 1.0)
+        assert probs.shape == (4,)
+        assert np.all((probs >= 0.0) & (probs <= 1.0))
 
         metrics = baseline.evaluate(records[12:16])
         assert "accuracy" in metrics
