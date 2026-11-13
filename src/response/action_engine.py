@@ -138,8 +138,21 @@ class ResponseEngine:
     # -- execution ---------------------------------------------------------
     def execute(self, alert: dict) -> dict:
         """Decide and carry out the response for one alert."""
-        action = self.decide_action(alert)
-        source_ip = str(alert.get("source_ip") or "unknown")
+        alert_copy = dict(alert)
+        if self.calibrator is not None:
+            if "probabilities" in alert_copy:
+                import numpy as np
+                probs = self.calibrator.predict_proba(np.asarray(alert_copy["probabilities"]))
+                alert_copy["confidence"] = float(np.max(probs))
+                alert_copy["calibrated"] = True
+            elif "uncalibrated_confidence" in alert_copy:
+                import numpy as np
+                probs = self.calibrator.predict_proba(np.asarray([alert_copy["uncalibrated_confidence"]]))
+                alert_copy["confidence"] = float(probs[0, 1] if probs.shape[1] > 1 else probs[0, 0])
+                alert_copy["calibrated"] = True
+
+        action = self.decide_action(alert_copy)
+        source_ip = str(alert_copy.get("source_ip") or "unknown")
         now = time.time()
 
         result = {
@@ -147,13 +160,16 @@ class ResponseEngine:
             "requested_action": action,
             "source_ip": source_ip,
             "timestamp": now,
-            "confidence": float(alert.get("confidence", 0.0) or 0.0),
-            "severity": str(alert.get("severity", "MEDIUM") or "MEDIUM"),
-            "label": alert.get("label"),
-            "alert_id": alert.get("alert_id"),
+            "confidence": float(alert_copy.get("confidence", 0.0) or 0.0),
+            "severity": str(alert_copy.get("severity", "MEDIUM") or "MEDIUM"),
+            "label": alert_copy.get("label"),
+            "alert_id": alert_copy.get("alert_id"),
+            "true_label": alert_copy.get("true_label"),
             "success": True,
             "dry_run": self.dry_run,
         }
+        if alert_copy.get("calibrated"):
+            result["calibrated"] = True
 
         with self._lock:
             self.sweep()
