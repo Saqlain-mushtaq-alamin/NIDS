@@ -115,7 +115,7 @@ def run_seed(primary_df: pd.DataFrame, secondary_df: pd.DataFrame,
         drop_ip_port=True,
         normalization="none",
     )
-    unsw_features = set(unsw_prep.extract_features(secondary_df).columns)
+    unsw_features = set(unsw_prep.project_features(secondary_df).columns)
     shared_features = sorted(cic_cols & unsw_features)
 
     # Transform secondary with the primary benign-fitted preprocessor
