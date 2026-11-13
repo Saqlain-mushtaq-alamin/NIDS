@@ -215,3 +215,56 @@ class TestCompareExplainers:
         out = wrapped(np.array([[1.0, 2.0]]))
         assert out.shape == (1,)
         assert out[0] == pytest.approx(3.0)
+
+
+class TestInsertionCurveAndControls:
+    def test_insertion_curve_rewards_faithful_attributions(self):
+        from src.explainability.faithfulness import insertion_curve, insertion_auc
+
+        X = _driven_inputs(30, seed=42)
+        model = IdentityModel()
+        faithful = np.tile([5.0, 0.0, 0.0, 0.0, 0.0, 0.0], (30, 1))
+        unfaithful = np.tile([0.0, 0.0, 0.0, 0.0, 0.0, 5.0], (30, 1))
+
+        auc_f = insertion_auc(model, X, faithful, steps=6, class_index=1, baseline=0.0)
+        auc_u = insertion_auc(model, X, unfaithful, steps=6, class_index=1, baseline=0.0)
+
+        # For insertion, higher AUC = more faithful
+        assert auc_f > auc_u
+
+    def test_vector_baseline_masking(self):
+        from src.explainability.faithfulness import deletion_curve
+
+        X = np.array([[10.0, 10.0], [10.0, 10.0]])
+        attrs = np.array([[5.0, 1.0], [5.0, 1.0]])
+        # Baseline replaces feature 0 with 2.0, feature 1 with 3.0
+        mean_base = np.array([2.0, 3.0])
+
+        curve = deletion_curve(SumModel(), X, attrs, steps=2, class_index=1, baseline=mean_base)
+        # Step 0: untouched -> 10 + 10 = 20 -> clipped to 1.0
+        assert curve["mean_probability"][0] == pytest.approx(1.0)
+        # Step 2: fully masked -> 2.0 + 3.0 = 5.0 -> clipped to 1.0 (SumModel sums)
+        assert len(curve["k_masked"]) == 3
+
+    def test_random_ranking_control_runs(self):
+        from src.explainability.faithfulness import random_ranking_control
+
+        X = _driven_inputs(20, seed=12)
+        model = IdentityModel()
+        ctrl = random_ranking_control(model, X, steps=5, class_index=1, baseline=0.0)
+
+        assert 0.0 <= ctrl["deletion_auc"] <= 1.0
+        assert 0.0 <= ctrl["insertion_auc"] <= 1.0
+        assert len(ctrl["deletion_rows"]) == 20
+
+    def test_paired_effect_size_ci(self):
+        from src.explainability.faithfulness import paired_effect_size_ci
+
+        scores_a = np.array([0.2, 0.25, 0.22, 0.28, 0.21, 0.24])
+        scores_b = np.array([0.4, 0.45, 0.42, 0.48, 0.41, 0.44])
+
+        res = paired_effect_size_ci(scores_a, scores_b, n_bootstraps=500, seed=42)
+        assert res["mean_diff"] < 0
+        assert res["ci_diff_lower"] < res["ci_diff_upper"]
+        assert res["cohens_d"] < -1.0
+
