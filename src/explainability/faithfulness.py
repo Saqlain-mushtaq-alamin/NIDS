@@ -6,31 +6,45 @@ a ranked feature list, and an analyst has no way to tell from the list alone
 whether those features actually drive the prediction.  Faithfulness measures
 answer that question by intervening on the input (PHASE_4 section 4.3).
 
-**Deletion AUC** is the metric used here:
+Two complementary metrics are evaluated:
+1. **Deletion AUC**:
+   - Start with the full flow.
+   - Progressively mask the top-``k`` attributed features with a matched baseline value
+     (zeros or training feature means/medians).
+   - Record model probability of the explained class.
+   - **Lower AUC = more faithful** (masking critical features collapses confidence).
 
-1. start with the full flow,
-2. progressively mask the top-``k`` attributed features (replace them with the
-   baseline value, which for robust-scaled features is the training median),
-3. record the model's probability for the explained class,
-4. take the area under the resulting curve.
+2. **Insertion AUC**:
+   - Start from a baseline input (all features replaced by baseline values).
+   - Progressively unmask/insert the top-``k`` attributed features back to their original values.
+   - Record model probability of the explained class.
+   - **Higher AUC = more faithful** (introducing critical features restores confidence).
 
-Masking features the model actually relies on should collapse the predicted
-probability, so **lower AUC = more faithful**.  A method whose top features are
-decorative will keep the probability high all the way to full masking and score
-close to 1.
-
-Probabilities are clipped to ``[0, 1]`` before integration: a metric bounded by
-the geometry of the model's output must not depend on a scorer that returns
-out-of-range values (the plan's mock scorer does exactly that).
+Controls & Statistical Validity:
+- **Random-ranking control**: Feature rankings randomly permuted per alert. Faithful explainers
+  must significantly beat the random control (lower deletion AUC, higher insertion AUC).
+- **Matched baselines**: The masking baseline matches the explainer's reference baseline
+  (scalar 0.0 or 1-D feature mean/median vector).
+- **Effect sizes with bootstrap CIs**: Evaluation alerts often come from the same capture session
+  or traffic window and are correlated. Rather than reporting spuriously small p-values from
+  independent-sample tests, effect sizes (mean difference and Cohen's d) are reported with
+  95% bootstrap confidence intervals over alerts.
 """
 from __future__ import annotations
 
 from typing import Callable, Optional, Sequence, Union
-
 import numpy as np
 
-__all__ = ["as_predict_proba", "compare_explainers", "deletion_auc",
-           "deletion_curve"]
+__all__ = [
+    "as_predict_proba",
+    "compare_explainers",
+    "deletion_auc",
+    "deletion_curve",
+    "insertion_auc",
+    "insertion_curve",
+    "random_ranking_control",
+    "paired_effect_size_ci",
+]
 
 try:  # NumPy >= 2.0 renamed trapz
     _trapezoid = np.trapezoid  # type: ignore[attr-defined]
@@ -44,7 +58,6 @@ def as_predict_proba(model, class_index: Optional[Union[int, Sequence[int]]] = N
     Wrap ``model`` so it scores ``(n, f)`` input into a 1-D probability vector.
 
     Accepts:
-
     * an estimator with ``predict_proba`` (returns ``(n, k)``),
     * a ``torch.nn.Module`` (returns logits; softmax is applied),
     * a bare callable returning ``(n,)``, ``(n, 1)`` or ``(n, k)``.
@@ -111,10 +124,43 @@ def _gather(proba: np.ndarray, class_index) -> np.ndarray:
     return proba[np.arange(proba.shape[0]), idx.astype(int)]
 
 
+def _resolve_baseline_vector(baseline: Optional[Union[float, np.ndarray]], n_features: int) -> np.ndarray:
+    """Ensure baseline is a 1-D float array of length `n_features`."""
+    if baseline is None:
+        return np.zeros(n_features, dtype=float)
+    arr = np.asarray(baseline, dtype=float)
+    if arr.ndim == 0:
+        return np.full(n_features, float(arr), dtype=float)
+    if arr.ndim == 1 and arr.shape[0] == n_features:
+        return arr
+    if arr.ndim == 2 and arr.shape[1] == n_features:
+        return arr[0]
+    raise ValueError(f"baseline shape {arr.shape} does not match {n_features} features.")
+
+
+def _get_ranks(X: np.ndarray, attributions: np.ndarray) -> np.ndarray:
+    """Compute per-row ranking indices from feature attributions."""
+    attr = np.asarray(attributions, dtype=float)
+    if attr.ndim == 1:
+        if attr.shape[0] != X.shape[1]:
+            raise ValueError(
+                f"attributions has {attr.shape[0]} entries for {X.shape[1]} features."
+            )
+        ranking = np.argsort(np.abs(attr))[::-1]
+        return np.tile(ranking, (X.shape[0], 1))
+    elif attr.ndim == 2:
+        if attr.shape != X.shape:
+            raise ValueError(
+                f"attributions shape {attr.shape} does not match X shape {X.shape}."
+            )
+        return np.argsort(np.abs(attr), axis=1)[:, ::-1]
+    raise ValueError(f"Unsupported attribution shape {attr.shape}.")
+
+
 def deletion_curve(model, X: np.ndarray, attributions: np.ndarray,
                    steps: int = 10,
                    class_index: Optional[Union[int, Sequence[int]]] = None,
-                   baseline: Optional[np.ndarray] = None) -> dict:
+                   baseline: Optional[Union[float, np.ndarray]] = None) -> dict:
     """
     Compute the deletion curve: mean probability vs. number of masked features.
 
@@ -123,14 +169,12 @@ def deletion_curve(model, X: np.ndarray, attributions: np.ndarray,
         X: ``(n, f)`` input matrix.
         attributions: ``(f,)`` shared across all rows, or ``(n, f)`` per row.
         steps: Number of masking increments (``steps + 1`` curve points).
-        class_index: Explained class (int or per-row vector); see
-            :func:`as_predict_proba`.
-        baseline: Replacement value for masked features.  ``None`` = 0.0, which
-            is the training median for robust-scaled features.
+        class_index: Explained class (int or per-row vector); see :func:`as_predict_proba`.
+        baseline: Replacement value for masked features (scalar or 1D array of length f).
+            ``None`` = 0.0, which is the training median for robust-scaled features.
 
     Returns:
-        dict with ``k_masked`` (list of feature counts), ``mean_probability``
-        (list of floats, clipped to [0, 1]), ``rows`` (per-row AUCs) and
+        dict with ``k_masked``, ``mean_probability``, ``rows`` (per-row AUCs) and
         ``auc`` (area under the mean curve, lower = more faithful).
     """
     if steps < 1:
@@ -142,43 +186,20 @@ def deletion_curve(model, X: np.ndarray, attributions: np.ndarray,
     if X.ndim != 2:
         raise ValueError(f"X must be 2-D (n, f); got shape {X.shape}.")
 
-    attr = np.asarray(attributions, dtype=float)
-    if attr.ndim == 1:
-        if attr.shape[0] != X.shape[1]:
-            raise ValueError(
-                f"attributions has {attr.shape[0]} entries for {X.shape[1]} features."
-            )
-        ranking = np.argsort(np.abs(attr))[::-1]           # shared ranking
-        ranks = np.tile(ranking, (X.shape[0], 1))          # (n, f)
-    elif attr.ndim == 2:
-        if attr.shape != X.shape:
-            raise ValueError(
-                f"attributions shape {attr.shape} does not match X shape {X.shape}."
-            )
-        ranks = np.argsort(np.abs(attr), axis=1)[:, ::-1]  # per-row ranking
-    else:
-        raise ValueError(f"Unsupported attribution shape {attr.shape}.")
-
-    score = as_predict_proba(model, class_index=class_index)
-    fill = 0.0 if baseline is None else float(baseline)
-
     n_features = X.shape[1]
+    ranks = _get_ranks(X, attributions)
+    fill_vec = _resolve_baseline_vector(baseline, n_features)
+    score = as_predict_proba(model, class_index=class_index)
+
     k_masked, mean_probability, rows = [], [], []
 
     for step in range(steps + 1):
         k = int(round(step * n_features / steps))
         masked = X.copy()
         if k > 0:
-            # ``ranks[row, j]`` is the feature occupying position ``j`` of that
-            # row's importance ordering, so the top-k features to mask are the
-            # first k *positions*, not the features whose index happens to be
-            # smaller than k.  Flatten to explicit (row, col) pairs: the
-            # broadcast form ``masked[rows[:, None], ranks[:, :k]]`` silently
-            # cross-multiplies (4,1) against (4,1,k) into (4,4,k) and masks
-            # every row with *other* rows' features.
             row_idx = np.repeat(np.arange(X.shape[0]), k)
             col_idx = ranks[:, :k].reshape(-1)
-            masked[row_idx, col_idx] = fill
+            masked[row_idx, col_idx] = fill_vec[col_idx]
         proba = np.clip(np.asarray(score(masked), dtype=float).reshape(-1), 0.0, 1.0)
         k_masked.append(k)
         mean_probability.append(float(proba.mean()))
@@ -199,15 +220,167 @@ def deletion_curve(model, X: np.ndarray, attributions: np.ndarray,
 def deletion_auc(model, X: np.ndarray, attributions: np.ndarray,
                  steps: int = 10,
                  class_index: Optional[Union[int, Sequence[int]]] = None,
-                 baseline: Optional[np.ndarray] = None) -> float:
-    """
-    Scalar deletion AUC for a batch of alerts (lower = more faithful).
-
-    This is the metric named in PHASE_4 section 4.3; :func:`deletion_curve`
-    exposes the underlying curve for plotting and for per-alert scores.
-    """
+                 baseline: Optional[Union[float, np.ndarray]] = None) -> float:
+    """Scalar deletion AUC for a batch of alerts (lower = more faithful)."""
     return deletion_curve(model, X, attributions, steps=steps,
                           class_index=class_index, baseline=baseline)["auc"]
+
+
+def insertion_curve(model, X: np.ndarray, attributions: np.ndarray,
+                    steps: int = 10,
+                    class_index: Optional[Union[int, Sequence[int]]] = None,
+                    baseline: Optional[Union[float, np.ndarray]] = None) -> dict:
+    """
+    Compute the insertion curve: mean probability vs. number of inserted features.
+
+    Higher AUC = more faithful.
+    """
+    if steps < 1:
+        raise ValueError(f"steps must be >= 1; got {steps}")
+
+    X = np.asarray(X, dtype=float)
+    if X.ndim == 1:
+        X = X[np.newaxis, :]
+    if X.ndim != 2:
+        raise ValueError(f"X must be 2-D (n, f); got shape {X.shape}.")
+
+    n_features = X.shape[1]
+    ranks = _get_ranks(X, attributions)
+    fill_vec = _resolve_baseline_vector(baseline, n_features)
+    score = as_predict_proba(model, class_index=class_index)
+
+    base = np.tile(fill_vec, (X.shape[0], 1))
+    k_inserted, mean_probability, rows = [], [], []
+
+    for step in range(steps + 1):
+        k = int(round(step * n_features / steps))
+        inserted = base.copy()
+        if k > 0:
+            row_idx = np.repeat(np.arange(X.shape[0]), k)
+            col_idx = ranks[:, :k].reshape(-1)
+            inserted[row_idx, col_idx] = X[row_idx, col_idx]
+        proba = np.clip(np.asarray(score(inserted), dtype=float).reshape(-1), 0.0, 1.0)
+        k_inserted.append(k)
+        mean_probability.append(float(proba.mean()))
+        rows.append(proba)
+
+    row_matrix = np.vstack(rows)                      # (steps+1, n)
+    row_auc = _trapezoid(row_matrix, dx=1.0 / steps, axis=0)
+    auc = float(_trapezoid(np.asarray(mean_probability), dx=1.0 / steps))
+    return {
+        "k_inserted": k_inserted,
+        "mean_probability": mean_probability,
+        "rows": row_auc,
+        "auc": auc,
+        "steps": int(steps),
+    }
+
+
+def insertion_auc(model, X: np.ndarray, attributions: np.ndarray,
+                  steps: int = 10,
+                  class_index: Optional[Union[int, Sequence[int]]] = None,
+                  baseline: Optional[Union[float, np.ndarray]] = None) -> float:
+    """Scalar insertion AUC for a batch of alerts (higher = more faithful)."""
+    return insertion_curve(model, X, attributions, steps=steps,
+                           class_index=class_index, baseline=baseline)["auc"]
+
+
+def random_ranking_control(model, X: np.ndarray, steps: int = 10,
+                           class_index: Optional[Union[int, Sequence[int]]] = None,
+                           baseline: Optional[Union[float, np.ndarray]] = None,
+                           seed: int = 42) -> dict:
+    """
+    Evaluate deletion and insertion curves under uniform random feature ranking.
+
+    A faithful explanation method must significantly outperform this random control:
+    - Lower deletion AUC than random
+    - Higher insertion AUC than random
+    """
+    X = np.asarray(X, dtype=float)
+    if X.ndim == 1:
+        X = X[np.newaxis, :]
+    rng = np.random.default_rng(seed)
+    random_attr = rng.standard_normal(size=X.shape)
+    del_curve = deletion_curve(model, X, random_attr, steps=steps,
+                               class_index=class_index, baseline=baseline)
+    ins_curve = insertion_curve(model, X, random_attr, steps=steps,
+                                class_index=class_index, baseline=baseline)
+    return {
+        "random_attributions": random_attr,
+        "deletion_curve": del_curve,
+        "insertion_curve": ins_curve,
+        "deletion_auc": float(del_curve["auc"]),
+        "insertion_auc": float(ins_curve["auc"]),
+        "deletion_rows": del_curve["rows"],
+        "insertion_rows": ins_curve["rows"],
+    }
+
+
+def paired_effect_size_ci(scores_a: np.ndarray, scores_b: np.ndarray,
+                          n_bootstraps: int = 1000, seed: int = 42,
+                          alpha: float = 0.05) -> dict:
+    """
+    Compute paired effect size (mean difference and Cohen's d) with bootstrap 95% CIs.
+
+    Alerts from the same evaluation batch or session are correlated; therefore,
+    inference is based on bootstrap confidence intervals rather than standard
+    independent-sample p-values.
+    """
+    a = np.asarray(scores_a, dtype=float)
+    b = np.asarray(scores_b, dtype=float)
+    if a.shape != b.shape:
+        raise ValueError(f"scores_a shape {a.shape} != scores_b shape {b.shape}")
+    n = a.shape[0]
+    if n == 0:
+        return {"mean_a": 0.0, "mean_b": 0.0, "mean_diff": 0.0, "cohens_d": 0.0}
+
+    diffs = a - b
+    mean_diff = float(np.mean(diffs))
+    var_a = np.var(a, ddof=1) if n > 1 else 0.0
+    var_b = np.var(b, ddof=1) if n > 1 else 0.0
+    pooled_sd = float(np.sqrt(0.5 * (var_a + var_b))) if (var_a + var_b) > 0 else 1.0
+    cohens_d = float(mean_diff / (pooled_sd if pooled_sd > 1e-12 else 1.0))
+
+    if n < 3:
+        return {
+            "mean_a": float(np.mean(a)),
+            "mean_b": float(np.mean(b)),
+            "mean_diff": mean_diff,
+            "ci_diff_lower": mean_diff,
+            "ci_diff_upper": mean_diff,
+            "cohens_d": cohens_d,
+            "ci_d_lower": cohens_d,
+            "ci_d_upper": cohens_d,
+        }
+
+    rng = np.random.default_rng(seed)
+    boot_diffs = []
+    boot_ds = []
+    for _ in range(n_bootstraps):
+        idx = rng.choice(n, size=n, replace=True)
+        boot_a = a[idx]
+        boot_b = b[idx]
+        b_diff = float(np.mean(boot_a - boot_b))
+        v_a = np.var(boot_a, ddof=1) if n > 1 else 0.0
+        v_b = np.var(boot_b, ddof=1) if n > 1 else 0.0
+        b_pooled = float(np.sqrt(0.5 * (v_a + v_b))) if (v_a + v_b) > 0 else 1.0
+        b_d = b_diff / (b_pooled if b_pooled > 1e-12 else 1.0)
+        boot_diffs.append(b_diff)
+        boot_ds.append(b_d)
+
+    ci_low_pct = 100 * (alpha / 2.0)
+    ci_high_pct = 100 * (1.0 - alpha / 2.0)
+
+    return {
+        "mean_a": float(np.mean(a)),
+        "mean_b": float(np.mean(b)),
+        "mean_diff": mean_diff,
+        "ci_diff_lower": float(np.percentile(boot_diffs, ci_low_pct)),
+        "ci_diff_upper": float(np.percentile(boot_diffs, ci_high_pct)),
+        "cohens_d": cohens_d,
+        "ci_d_lower": float(np.percentile(boot_ds, ci_low_pct)),
+        "ci_d_upper": float(np.percentile(boot_ds, ci_high_pct)),
+    }
 
 
 def compare_explainers(model, X: np.ndarray,
@@ -215,19 +388,18 @@ def compare_explainers(model, X: np.ndarray,
                        attributions_b: np.ndarray,
                        steps: int = 10,
                        class_index=None,
-                       baseline: Optional[np.ndarray] = None,
+                       baseline: Optional[Union[float, np.ndarray]] = None,
                        name_a: str = "shap",
-                       name_b: str = "deeplift") -> dict:
+                       name_b: str = "deeplift",
+                       include_random_control: bool = True,
+                       seed: int = 42) -> dict:
     """
     Paired faithfulness comparison of two attribution methods on the same alerts.
 
-    Both methods explain the *same* rows of the *same* model, so the per-row
-    scores are paired and a paired t-test is the right test (PHASE_4 section
-    4.3.3).  Lower AUC is better, so ``more_faithful`` names the method with
-    the smaller mean.
-
-    Returns a JSON-ready dict including both score vectors, means, the t
-    statistic and p-value, and a plain-language verdict.
+    Computes:
+    - Deletion curves and insertion curves for both methods.
+    - Paired effect sizes (mean difference and Cohen's d) with bootstrap 95% CIs.
+    - Optional random-ranking control baseline.
     """
     X = np.asarray(X, dtype=float)
     if X.ndim == 1:
@@ -238,57 +410,91 @@ def compare_explainers(model, X: np.ndarray,
     curve_b = deletion_curve(model, X, attributions_b, steps=steps,
                              class_index=class_index, baseline=baseline)
 
+    ins_a = insertion_curve(model, X, attributions_a, steps=steps,
+                            class_index=class_index, baseline=baseline)
+    ins_b = insertion_curve(model, X, attributions_b, steps=steps,
+                            class_index=class_index, baseline=baseline)
+
     scores_a = np.asarray(curve_a["rows"], dtype=float)
     scores_b = np.asarray(curve_b["rows"], dtype=float)
 
+    effect_size = paired_effect_size_ci(scores_a, scores_b, seed=seed)
+
+    # Calculate paired t-test for legacy compatibility, with explicit correlation note
     t_stat = p_value = None
-    verdict = "inconclusive"
     if scores_a.size >= 2:
         try:
             import warnings
-
             from scipy import stats  # type: ignore
             with warnings.catch_warnings():
-                # Identical inputs give zero variance, and SciPy answers with a
-                # nan statistic and a divide-by-zero warning.  A nan would leak
-                # into the report and the dashboard, so it is treated as
-                # "no test possible" rather than as a number.
                 warnings.simplefilter("ignore")
                 result = stats.ttest_rel(scores_a, scores_b)
             t_stat, p_value = float(result.statistic), float(result.pvalue)
             if not np.isfinite(t_stat) or not np.isfinite(p_value):
                 t_stat = p_value = None
-        except Exception:  # pragma: no cover - scipy always present in practice
+        except Exception:
             t_stat = p_value = None
 
     diff = float(scores_a.mean() - scores_b.mean())
-    significant = p_value is not None and p_value < 0.05
+    ci_excludes_zero = (effect_size["ci_diff_lower"] > 0) or (effect_size["ci_diff_upper"] < 0)
+
     if abs(diff) < 1e-9:
         verdict = "tie"
-    elif significant:
+    elif ci_excludes_zero:
         winner = name_a if diff < 0 else name_b
-        verdict = f"{winner} significantly more faithful (paired t-test p={p_value:.4g})"
+        verdict = (f"{winner} significantly more faithful (deletion diff {diff:+.4f}, "
+                   f"95% CI [{effect_size['ci_diff_lower']:.4f}, {effect_size['ci_diff_upper']:.4f}])")
     else:
         better = name_a if diff < 0 else name_b
-        verdict = (f"{better} numerically lower AUC, but the difference is not "
-                   f"significant (p={'n/a' if p_value is None else format(p_value, '.4g')})")
+        verdict = (f"{better} numerically lower deletion AUC, but 95% bootstrap CI "
+                   f"crosses zero ([{effect_size['ci_diff_lower']:.4f}, {effect_size['ci_diff_upper']:.4f}])")
 
-    return {
+    out = {
         "n_alerts": int(X.shape[0]),
         "steps": int(steps),
         "lower_auc_is_better": True,
+        "lower_auc_is_better_for_deletion": True,
+        "higher_auc_is_better_for_insertion": True,
         f"{name_a}_scores": scores_a.tolist(),
         f"{name_b}_scores": scores_b.tolist(),
         f"{name_a}_mean_deletion_auc": float(scores_a.mean()),
         f"{name_b}_mean_deletion_auc": float(scores_b.mean()),
+        f"{name_a}_mean_insertion_auc": float(ins_a["auc"]),
+        f"{name_b}_mean_insertion_auc": float(ins_b["auc"]),
         f"{name_a}_curve": curve_a["mean_probability"],
         f"{name_b}_curve": curve_b["mean_probability"],
+        f"{name_a}_insertion_curve": ins_a["mean_probability"],
+        f"{name_b}_insertion_curve": ins_b["mean_probability"],
         "k_masked": curve_a["k_masked"],
         "mean_difference": diff,
+        "effect_size": effect_size,
         "t_statistic": t_stat,
         "p_value": p_value,
-        "significant_at_0.05": bool(significant),
+        "statistical_inference_note": (
+            "Alerts may be correlated across sessions. The paired t-test p-value assumes "
+            "independent samples; prefer the bootstrap 95% CI of effect size."
+        ),
+        "significant_at_0.05": bool(ci_excludes_zero),
         "more_faithful": ("tie" if verdict == "tie" else
                           (name_a if diff < 0 else name_b)),
         "verdict": verdict,
     }
+
+    if include_random_control:
+        rand_ctrl = random_ranking_control(model, X, steps=steps,
+                                           class_index=class_index,
+                                           baseline=baseline, seed=seed)
+        out["random_control"] = {
+            "deletion_auc": rand_ctrl["deletion_auc"],
+            "insertion_auc": rand_ctrl["insertion_auc"],
+            "deletion_curve": rand_ctrl["deletion_curve"]["mean_probability"],
+            "insertion_curve": rand_ctrl["insertion_curve"]["mean_probability"],
+        }
+        out[f"{name_a}_vs_random"] = paired_effect_size_ci(
+            scores_a, np.asarray(rand_ctrl["deletion_rows"], dtype=float), seed=seed
+        )
+        out[f"{name_b}_vs_random"] = paired_effect_size_ci(
+            scores_b, np.asarray(rand_ctrl["deletion_rows"], dtype=float), seed=seed
+        )
+
+    return out
