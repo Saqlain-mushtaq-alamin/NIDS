@@ -770,9 +770,8 @@ def run_response(ctx: Phase4Context, tiered_result: dict | None = None,
     # 1. Temperature scaling calibration
     print("[response] fitting TemperatureScaler on validation probabilities ...")
     calibrator = TemperatureScaler()
-    val_n = min(1000, len(ctx.X_train))
-    val_probs = ctx.xgb.predict_proba(ctx.X_train[:val_n])
-    val_labels = ctx.y_train[:val_n]
+    val_probs = ctx.xgb.predict_proba(ctx.X_cal)
+    val_labels = ctx.y_cal
     calibrator.fit(val_probs, val_labels)
 
     raw_test_probs = ctx.xgb.predict_proba(ctx.X_test)
