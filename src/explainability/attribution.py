@@ -23,6 +23,8 @@ __all__ = [
     "align_attributions",
     "feature_description",
     "rank_features",
+    "ground_truth_precision_at_k",
+    "evaluate_generator_feature_recovery",
 ]
 
 
@@ -167,3 +169,184 @@ def feature_description(feature: str, contribution: float,
     if len(text) > 90:
         text = text[:87] + "..."
     return text
+
+
+def ground_truth_precision_at_k(
+    attributions: np.ndarray,
+    ground_truth_indices: Sequence[int],
+    top_k: int = 5,
+    seed: int = 42,
+) -> dict:
+    """
+    Compute top-k precision and recall of feature attributions against known ground truth.
+
+    Args:
+        attributions: (n, f) or (f,) array of feature importance/attributions.
+        ground_truth_indices: Collection of integer indices of true discriminative features.
+        top_k: Number of highest-magnitude features to evaluate.
+        seed: Random seed for bootstrap confidence interval.
+
+    Returns:
+        dict containing per-sample precision and recall, mean, std, and 95% bootstrap CI.
+    """
+    arr = np.asarray(attributions, dtype=float)
+    if arr.ndim == 1:
+        arr = arr[np.newaxis, :]
+    if arr.ndim != 2:
+        raise ValueError(f"attributions must be 1D or 2D; got shape {arr.shape}")
+
+    gt_set = set(int(i) for i in ground_truth_indices)
+    k = max(1, min(int(top_k), arr.shape[1]))
+    n_samples = arr.shape[0]
+
+    precisions = []
+    recalls = []
+
+    for i in range(n_samples):
+        top_indices = np.argsort(np.abs(arr[i]))[::-1][:k]
+        hits = len(set(top_indices) & gt_set)
+        precisions.append(hits / k)
+        recalls.append(hits / len(gt_set) if gt_set else 0.0)
+
+    prec_arr = np.array(precisions, dtype=float)
+    rec_arr = np.array(recalls, dtype=float)
+
+    from src.evaluation.statistics import bootstrap_ci
+
+    ci_prec = bootstrap_ci(prec_arr, seed=seed) if len(prec_arr) >= 2 else (float(prec_arr[0]), float(prec_arr[0]))
+    ci_rec = bootstrap_ci(rec_arr, seed=seed) if len(rec_arr) >= 2 else (float(rec_arr[0]), float(rec_arr[0]))
+
+    return {
+        "top_k": k,
+        "n_samples": n_samples,
+        "ground_truth_count": len(gt_set),
+        "mean_precision": float(np.mean(prec_arr)),
+        "std_precision": float(np.std(prec_arr)),
+        "ci_precision": [float(ci_prec[0]), float(ci_prec[1])],
+        "mean_recall": float(np.mean(rec_arr)),
+        "std_recall": float(np.std(rec_arr)),
+        "ci_recall": [float(ci_rec[0]), float(ci_rec[1])],
+        "sample_precisions": prec_arr.tolist(),
+    }
+
+
+def evaluate_generator_feature_recovery(
+    n_samples: int = 500,
+    n_features: int = 20,
+    n_informative: int = 5,
+    seed: int = 42,
+) -> dict:
+    """
+    Benchmark feature recovery of TreeSHAP, KernelSHAP, DeepLIFT, and Random Control
+    on generator data with mathematically known ground-truth discriminative features.
+    """
+    from sklearn.datasets import make_classification
+    from sklearn.model_selection import train_test_split
+    import xgboost as xgb
+    import torch
+    import torch.nn as nn
+
+    # Generate synthetic dataset where informative features are features 0 .. n_informative - 1
+    X, y = make_classification(
+        n_samples=n_samples,
+        n_features=n_features,
+        n_informative=n_informative,
+        n_redundant=0,
+        n_repeated=0,
+        shuffle=False,  # preserves first n_informative as informative features
+        random_state=seed,
+    )
+    feature_names = [f"f_{i}" for i in range(n_features)]
+    ground_truth_features = list(range(n_informative))
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.3, random_state=seed, stratify=y
+    )
+
+    # 1. Train XGBoost model
+    xgb_clf = xgb.XGBClassifier(
+        n_estimators=50, max_depth=4, learning_rate=0.1, random_state=seed, eval_metric="logloss"
+    )
+    xgb_clf.fit(X_train, y_train)
+
+    # 2. Train small PyTorch MLP
+    torch.manual_seed(seed)
+    mlp = nn.Sequential(
+        nn.Linear(n_features, 32),
+        nn.ReLU(),
+        nn.Linear(32, 2),
+    )
+    mlp.eval()
+    t_X = torch.as_tensor(X_train, dtype=torch.float32)
+    t_y = torch.as_tensor(y_train, dtype=torch.long)
+    dataset = torch.utils.data.TensorDataset(t_X, t_y)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=64, shuffle=True)
+    optimizer = torch.optim.Adam(mlp.parameters(), lr=0.01)
+    loss_fn = nn.CrossEntropyLoss()
+
+    mlp.train()
+    for _ in range(10):
+        for bx, by in loader:
+            optimizer.zero_grad()
+            out = mlp(bx)
+            loss = loss_fn(out, by)
+            loss.backward()
+            optimizer.step()
+    mlp.eval()
+
+    # Select positive class alerts from test set
+    test_sub = X_test[:min(100, len(X_test))]
+
+    # A. TreeSHAP on XGBoost
+    import shap
+    tree_expl = shap.TreeExplainer(xgb_clf)
+    tree_shap_vals = tree_expl.shap_values(test_sub)
+    if isinstance(tree_shap_vals, list):
+        tree_attr = tree_shap_vals[1]
+    elif tree_shap_vals.ndim == 3:
+        tree_attr = tree_shap_vals[:, :, 1]
+    else:
+        tree_attr = tree_shap_vals
+
+    tree_res = ground_truth_precision_at_k(tree_attr, ground_truth_features, top_k=n_informative, seed=seed)
+
+    # B. KernelSHAP on MLP
+    def _mlp_predict(data):
+        with torch.no_grad():
+            t_in = torch.as_tensor(data, dtype=torch.float32)
+            return torch.softmax(mlp(t_in), dim=-1).numpy()
+
+    kernel_expl = shap.KernelExplainer(_mlp_predict, X_train[:30])
+    k_vals = kernel_expl.shap_values(test_sub[:20], nsamples=50)
+    if isinstance(k_vals, list):
+        kernel_attr = k_vals[1]
+    elif k_vals.ndim == 3:
+        kernel_attr = k_vals[:, :, 1]
+    else:
+        kernel_attr = k_vals
+    kernel_res = ground_truth_precision_at_k(kernel_attr, ground_truth_features, top_k=n_informative, seed=seed)
+
+    # C. DeepLIFT on MLP
+    from captum.attr import DeepLift
+    dl = DeepLift(mlp)
+    dl_tensor = torch.as_tensor(test_sub, dtype=torch.float32, requires_grad=True)
+    dl_baseline = torch.zeros((1, n_features), dtype=torch.float32)
+    dl_attr = dl.attribute(dl_tensor, target=1, baselines=dl_baseline).detach().cpu().numpy()
+    dl_res = ground_truth_precision_at_k(dl_attr, ground_truth_features, top_k=n_informative, seed=seed)
+
+    # D. Random ranking control
+    rng = np.random.default_rng(seed)
+    random_attr = rng.standard_normal(size=test_sub.shape)
+    rand_res = ground_truth_precision_at_k(random_attr, ground_truth_features, top_k=n_informative, seed=seed)
+
+    return {
+        "n_samples": n_samples,
+        "n_features": n_features,
+        "n_informative": n_informative,
+        "ground_truth_indices": ground_truth_features,
+        "treeshap_precision": tree_res,
+        "kernelshap_precision": kernel_res,
+        "deeplift_precision": dl_res,
+        "random_control_precision": rand_res,
+    }
+
