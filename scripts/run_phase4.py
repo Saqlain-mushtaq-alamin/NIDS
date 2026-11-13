@@ -145,18 +145,9 @@ class Phase4Context:
         self.feature_names = list(self.prep.feature_names_)
         self.class_names = list(self.prep.class_names_)
 
-        # Split train into fit and calibration folds (session-grouped)
-        from sklearn.model_selection import StratifiedGroupKFold
-        splitter = StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=self.seed)
-        cal_idx, fit_idx = next(splitter.split(self.train_df, self.train_df["label"], groups=self.train_df["session_id"]))
-        self.fit_df = self.train_df.iloc[fit_idx].reset_index(drop=True)
-        self.cal_df = self.train_df.iloc[cal_idx].reset_index(drop=True)
-        self.X_fit, self.y_fit = self.prep.transform(self.fit_df)
-        self.X_cal, self.y_cal = self.prep.transform(self.cal_df)
-
         print(f"[context] features={len(self.feature_names)} "
               f"classes={len(self.class_names)} "
-              f"train_fit={self.X_fit.shape[0]} cal={self.X_cal.shape[0]} test={self.X_test.shape[0]}")
+              f"train={self.X_train.shape[0]} test={self.X_test.shape[0]}")
 
         self._train_xgb()
         self._train_dnn()
@@ -208,7 +199,7 @@ class Phase4Context:
         print(f"[context] training XGBoost ({n_estimators} trees) ...")
         self.xgb = XGBBaseline(n_estimators=n_estimators, max_depth=6,
                                learning_rate=0.1, random_state=self.seed)
-        self.xgb.fit(self.X_fit, self.y_fit)
+        self.xgb.fit(self.X_train, self.y_train)
 
     def _train_dnn(self) -> None:
         """Small MLP classifier — the neural model DeepLIFT explains."""
