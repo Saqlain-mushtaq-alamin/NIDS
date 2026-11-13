@@ -64,7 +64,8 @@ class ResponseEngine:
                  log_confidence_below: float = 0.7,
                  block_confidence: float = 0.9,
                  dry_run: bool = True,
-                 action_log_size: int = 10000):
+                 action_log_size: int = 10000,
+                 calibrator: Optional[object] = None):
         if max_blocks_per_minute < 1:
             raise ValueError("max_blocks_per_minute must be >= 1.")
         if auto_unblock_seconds <= 0:
@@ -76,6 +77,7 @@ class ResponseEngine:
         self.log_confidence_below = float(log_confidence_below)
         self.block_confidence = float(block_confidence)
         self.dry_run = bool(dry_run)
+        self.calibrator = calibrator
 
         self._active_blocks: dict[str, float] = {}       # ip -> expiry (epoch s)
         self._active_rate_limits: dict[str, float] = {}
