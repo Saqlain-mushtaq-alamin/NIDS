@@ -243,3 +243,4 @@ class TemperatureScaler:
     def calibrate(self, X: np.ndarray) -> np.ndarray:
         """Alias for predict_proba."""
         return self.predict_proba(X)
+

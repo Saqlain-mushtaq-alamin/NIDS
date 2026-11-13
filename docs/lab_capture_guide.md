@@ -201,3 +201,4 @@ The extractor projects all flows into the canonical 28-feature representation:
 - Flags: `syn_flag_count`, `ack_flag_count`, `rst_flag_count`, `fin_flag_count`, `psh_flag_count`
 - Rates & ratios: `flow_bytes_per_sec`, `flow_packets_per_sec`, `down_up_ratio`
 - Ground-truth label: `label` (mapped via `session_labels.csv`)
+

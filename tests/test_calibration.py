@@ -89,3 +89,4 @@ class TestTemperatureScaler:
         p_cal = ts.predict_proba(logits)
         assert np.all(p_cal.argmax(axis=1) == logits.argmax(axis=1))
         assert np.allclose(p_cal.sum(axis=1), 1.0)
+

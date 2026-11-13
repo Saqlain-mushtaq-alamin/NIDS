@@ -43,3 +43,4 @@ class TestLabExtraction:
         assert len(flows) > 0
         assert "src_ip" in flows.columns
         assert "dst_ip" in flows.columns
+
