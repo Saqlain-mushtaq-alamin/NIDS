@@ -83,6 +83,34 @@ def _normalise(values: np.ndarray) -> np.ndarray:
     return (values - low) / (high - low)
 
 
+class ECDFScoreCalibrator:
+    """
+    Calibrate raw reconstruction or anomaly scores into empirical CDF percentiles in ``[0, 1]``
+    fitted strictly on benign validation scores (PHASE_3 3.3).
+
+    Reconstruction errors are unbounded and vary by dataset scale; empirical CDF percentiles
+    provide a mathematically calibrated, non-parametric mapping into [0, 1] relative to benign behavior.
+    """
+
+    def __init__(self):
+        self.benign_scores_: Optional[np.ndarray] = None
+
+    def fit(self, benign_scores: Sequence[float]) -> "ECDFScoreCalibrator":
+        arr = np.asarray(benign_scores, dtype=np.float64).ravel()
+        arr = arr[np.isfinite(arr)]
+        if arr.size == 0:
+            raise ValueError("benign_scores must contain at least one finite sample")
+        self.benign_scores_ = np.sort(arr)
+        return self
+
+    def transform(self, scores: Sequence[float]) -> np.ndarray:
+        vals = np.asarray(scores, dtype=np.float64).ravel()
+        if self.benign_scores_ is None or self.benign_scores_.size == 0:
+            return _normalise(vals)
+        ranks = np.searchsorted(self.benign_scores_, vals, side="right")
+        return np.clip(ranks / float(self.benign_scores_.size), 0.0, 1.0)
+
+
 @dataclass
 class FusionResult:
     """Fused per-flow decisions with an audit trail."""
@@ -94,6 +122,7 @@ class FusionResult:
     n_anomalies: int = 0
     n_review: int = 0
     notes: list[str] = field(default_factory=list)
+    is_demo: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -103,6 +132,7 @@ class FusionResult:
             "weights": self.weights,
             "agreement": self.agreement,
             "notes": "; ".join(self.notes),
+            "is_demo": self.is_demo,
         }
 
     def __len__(self) -> int:
