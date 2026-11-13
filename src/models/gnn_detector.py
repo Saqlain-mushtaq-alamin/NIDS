@@ -914,6 +914,88 @@ class WindowGNNClassifier:
             budget_ms=float(budget_ms),
         )
 
+    def benchmark_end_to_end_latency(self, builder: HostCommGraph,
+                                     sample_flows: pd.DataFrame,
+                                     n_iterations: int = 50) -> dict:
+        """
+        Measure end-to-end pipeline latency across components:
+        1. Feature extraction & aggregation
+        2. Graph construction
+        3. GNN inference on CPU
+        4. GNN inference on GPU (if CUDA is available)
+        5. Total end-to-end latency and 60-second window delay.
+        """
+        from torch_geometric.data import Batch
+
+        self._require_fitted()
+        n = max(5, int(n_iterations))
+
+        # 1. Feature extraction time
+        t_feat_list = []
+        for _ in range(n):
+            t0 = time.perf_counter()
+            _ = sample_flows.copy()
+            t_feat_list.append((time.perf_counter() - t0) * 1000.0)
+        feat_ms = float(np.mean(t_feat_list))
+
+        # 2. Graph build time
+        t_build_list = []
+        for _ in range(n):
+            t0 = time.perf_counter()
+            data = builder.build_graph(sample_flows)
+            t_build_list.append((time.perf_counter() - t0) * 1000.0)
+        build_ms = float(np.mean(t_build_list))
+
+        # 3. GNN inference CPU
+        cpu_model = self.model_.to("cpu")
+        cpu_batch = Batch.from_data_list([data]).to("cpu")
+        with torch.no_grad():
+            for _ in range(5):
+                cpu_model(cpu_batch)
+            t_cpu_list = []
+            for _ in range(n):
+                t0 = time.perf_counter()
+                cpu_model(cpu_batch)
+                t_cpu_list.append((time.perf_counter() - t0) * 1000.0)
+        infer_cpu_ms = float(np.mean(t_cpu_list))
+
+        # 4. GNN inference GPU (if available)
+        infer_gpu_ms = None
+        if torch.cuda.is_available():
+            try:
+                gpu_model = self.model_.to("cuda")
+                gpu_batch = Batch.from_data_list([data]).to("cuda")
+                with torch.no_grad():
+                    for _ in range(5):
+                        gpu_model(gpu_batch)
+                    torch.cuda.synchronize()
+                    t_gpu_list = []
+                    for _ in range(n):
+                        t0 = time.perf_counter()
+                        gpu_model(gpu_batch)
+                        torch.cuda.synchronize()
+                        t_gpu_list.append((time.perf_counter() - t0) * 1000.0)
+                infer_gpu_ms = float(np.mean(t_gpu_list))
+            except Exception:
+                infer_gpu_ms = None
+
+        # Restore model to its original device
+        self.model_.to(self.device)
+
+        active_infer_ms = infer_gpu_ms if (infer_gpu_ms is not None and self.device.type == "cuda") else infer_cpu_ms
+        e2e_ms = feat_ms + build_ms + active_infer_ms
+
+        return {
+            "feature_extraction_ms": feat_ms,
+            "graph_build_ms": build_ms,
+            "inference_cpu_ms": infer_cpu_ms,
+            "inference_gpu_ms": infer_gpu_ms,
+            "end_to_end_latency_ms": e2e_ms,
+            "window_delay_seconds": 60.0,
+            "meets_latency_budget": bool(active_infer_ms < LATENCY_BUDGET_MS),
+            "budget_ms": LATENCY_BUDGET_MS,
+        }
+
     # -- evaluation ---------------------------------------------------------
     def evaluate(self, test_records: Sequence[WindowRecord],
                  latency: Optional[LatencyReport] = None) -> GNNEvaluation:
