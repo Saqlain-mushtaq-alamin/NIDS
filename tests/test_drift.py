@@ -229,3 +229,23 @@ class TestSimulateConceptDrift:
         report = run_drift_experiment(seed=0)
         assert report.n_alerts > 0
         assert report.feature_stats is not None
+
+
+class TestNaturalDrift:
+    """Tests for natural concept and domain drift evaluation."""
+
+    def test_natural_temporal_drift_reports_far_and_delay(self):
+        from scripts.run_drift_monitoring import run_natural_temporal_drift
+        res = run_natural_temporal_drift(seed=42, top_k=4)
+        assert "control_false_alarm_rate" in res
+        assert 0.0 <= res["control_false_alarm_rate"] <= 1.0
+        assert res["temporal_alerts"] > 0
+        assert res["temporal_detection_delay"] is not None
+        assert res["temporal_detection_delay"] > 0
+
+    def test_natural_cross_dataset_drift_reports_delay(self):
+        from scripts.run_drift_monitoring import run_natural_cross_dataset_drift
+        res = run_natural_cross_dataset_drift(seed=42, top_k=4)
+        assert res["alerts"] > 0
+        assert res["detection_delay"] is not None
+        assert res["detection_delay"] > 0
