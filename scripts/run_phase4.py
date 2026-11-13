@@ -456,13 +456,24 @@ def run_deeplift(ctx: Phase4Context, **_) -> dict:
 def run_faithfulness(ctx: Phase4Context, shap_result: dict | None = None,
                      deeplift_result: dict | None = None, **_) -> dict:
     """
-    Deletion-AUC comparison of KernelSHAP vs DeepLIFT on identical alerts.
+    Faithfulness evaluation with matched baselines, random control, and TreeSHAP on XGBoost.
 
-    Both methods explain the *same* DNN on the *same* rows, which is the only
-    way the comparison means anything: attributions for different models are
-    not comparable.
+    Evaluates:
+    1. Zero baseline: KernelSHAP vs DeepLIFT vs Random Control on DNN.
+    2. Mean baseline: Matched mean baseline for attribution and masking.
+    3. TreeSHAP on XGBoost: Deletion & Insertion AUC vs Random Control with bootstrap CIs.
+    4. Ground-truth feature recovery: Top-k precision on known generator features.
     """
-    from src.explainability import SHAPExplainer, compare_explainers
+    from src.explainability import (
+        SHAPExplainer,
+        DeepLIFTExplainer,
+        compare_explainers,
+        deletion_curve,
+        insertion_curve,
+        random_ranking_control,
+        paired_effect_size_ci,
+    )
+    from src.explainability.attribution import evaluate_generator_feature_recovery
 
     started = time.perf_counter()
     steps = 5 if ctx.quick else 10
@@ -471,7 +482,7 @@ def run_faithfulness(ctx: Phase4Context, shap_result: dict | None = None,
     if targets is None:
         targets = ctx.dnn_proba(ctx.alert_X).argmax(axis=1)
 
-    print("[faithfulness] KernelSHAP on the DNN ...")
+    print("[faithfulness] 1. KernelSHAP & DeepLIFT on the DNN (zero baseline) ...")
     background = ctx.X_train[:20 if ctx.quick else 50]
     kernel = SHAPExplainer.for_neural(background, ctx.dnn_proba,
                                       max_background_samples=100)
@@ -483,7 +494,6 @@ def run_faithfulness(ctx: Phase4Context, shap_result: dict | None = None,
 
     deeplift_values = (deeplift_result or {}).get("_values")
     if deeplift_values is None:
-        from src.explainability import DeepLIFTExplainer
         dl = DeepLIFTExplainer(ctx.dnn, device=ctx.device)
         deeplift_values = np.vstack([
             dl.explain(ctx.alert_X[i:i + 1], target_class=int(targets[i]),
@@ -491,26 +501,96 @@ def run_faithfulness(ctx: Phase4Context, shap_result: dict | None = None,
             for i in range(ctx.n_alerts)
         ])
 
-    comparison = compare_explainers(
+    comparison_zero = compare_explainers(
         ctx.dnn, ctx.alert_X, shap_values, deeplift_values,
-        steps=steps, class_index=targets, name_a="shap", name_b="deeplift")
+        steps=steps, class_index=targets, baseline=0.0,
+        name_a="shap", name_b="deeplift", seed=ctx.seed)
 
-    comparison["kernel_shap_benchmark"] = kernel.benchmark()
-    comparison["deeplift_benchmark"] = (
+    print("[faithfulness] 2. Matched mean baseline evaluation ...")
+    mean_vec = np.mean(ctx.X_train, axis=0)
+    dl_mean = DeepLIFTExplainer(ctx.dnn, baseline=mean_vec, device=ctx.device)
+    dl_mean_values = np.vstack([
+        dl_mean.explain(ctx.alert_X[i:i + 1], target_class=int(targets[i]),
+                        feature_names=ctx.feature_names)["attributions"][0]
+        for i in range(ctx.n_alerts)
+    ])
+    comparison_mean = compare_explainers(
+        ctx.dnn, ctx.alert_X, shap_values, dl_mean_values,
+        steps=steps, class_index=targets, baseline=mean_vec,
+        name_a="shap", name_b="deeplift", seed=ctx.seed)
+
+    print("[faithfulness] 3. TreeSHAP on XGBoost evaluation ...")
+    tree_values = (shap_result or {}).get("_values")
+    if tree_values is None:
+        tree = SHAPExplainer.for_xgboost(ctx.xgb.model_)
+        tree_values = np.vstack([
+            tree.explain(ctx.alert_X[i:i + 1], ctx.feature_names,
+                         class_index=int(ctx.pred_index[ctx.alert_rows[i]]))
+            ["shap_values"][0]
+            for i in range(ctx.n_alerts)
+        ])
+    xgb_targets = ctx.pred_index[ctx.alert_rows]
+    tree_del = deletion_curve(ctx.xgb.model_, ctx.alert_X, tree_values,
+                              steps=steps, class_index=xgb_targets, baseline=0.0)
+    tree_ins = insertion_curve(ctx.xgb.model_, ctx.alert_X, tree_values,
+                               steps=steps, class_index=xgb_targets, baseline=0.0)
+    xgb_random = random_ranking_control(ctx.xgb.model_, ctx.alert_X,
+                                        steps=steps, class_index=xgb_targets,
+                                        baseline=0.0, seed=ctx.seed)
+    treeshap_vs_random_del = paired_effect_size_ci(
+        np.asarray(tree_del["rows"], dtype=float),
+        np.asarray(xgb_random["deletion_rows"], dtype=float),
+        seed=ctx.seed
+    )
+    treeshap_vs_random_ins = paired_effect_size_ci(
+        np.asarray(tree_ins["rows"], dtype=float),
+        np.asarray(xgb_random["insertion_rows"], dtype=float),
+        seed=ctx.seed
+    )
+
+    treeshap_eval = {
+        "deletion_auc": float(tree_del["auc"]),
+        "insertion_auc": float(tree_ins["auc"]),
+        "random_control_deletion_auc": float(xgb_random["deletion_auc"]),
+        "random_control_insertion_auc": float(xgb_random["insertion_auc"]),
+        "effect_size_deletion_vs_random": treeshap_vs_random_del,
+        "effect_size_insertion_vs_random": treeshap_vs_random_ins,
+        "treeshap_beats_random_deletion": bool(tree_del["auc"] < xgb_random["deletion_auc"]),
+        "treeshap_beats_random_insertion": bool(tree_ins["auc"] > xgb_random["insertion_auc"]),
+    }
+
+    print("[faithfulness] 4. Ground-truth feature recovery on generator data ...")
+    recovery_res = evaluate_generator_feature_recovery(
+        n_samples=250 if ctx.quick else 500,
+        n_features=20,
+        n_informative=5,
+        seed=ctx.seed,
+    )
+
+    comparison_zero["kernel_shap_benchmark"] = kernel.benchmark()
+    comparison_zero["deeplift_benchmark"] = (
         deeplift_result or {}).get("benchmark", {})
-    comparison["explained_model"] = "dnn_classifier"
-    comparison["target_rule"] = "the DNN's own predicted class per alert"
-    comparison["elapsed_s"] = time.perf_counter() - started
+    comparison_zero["mean_baseline_comparison"] = {
+        "shap_deletion_auc": comparison_mean["shap_mean_deletion_auc"],
+        "deeplift_deletion_auc": comparison_mean["deeplift_mean_deletion_auc"],
+        "effect_size": comparison_mean["effect_size"],
+        "random_control": comparison_mean.get("random_control", {}),
+    }
+    comparison_zero["treeshap_xgboost"] = treeshap_eval
+    comparison_zero["ground_truth_recovery"] = recovery_res
+    comparison_zero["explained_model"] = "dnn_classifier & xgboost"
+    comparison_zero["elapsed_s"] = time.perf_counter() - started
 
     if not ctx.quick:
-        _save_deletion_plot(comparison)
+        _save_deletion_plot(comparison_zero, treeshap_eval, tree_del)
 
-    comparison.pop("_values", None)
-    return comparison
+    comparison_zero.pop("_values", None)
+    return comparison_zero
 
 
-def _save_deletion_plot(comparison: dict) -> Path:
-    """Deletion curves for both methods (lower curve = more faithful)."""
+def _save_deletion_plot(comparison: dict, treeshap: dict | None = None,
+                        tree_del: dict | None = None) -> Path:
+    """Deletion curves for explainers and controls."""
     import matplotlib
     matplotlib.use("Agg", force=False)
     import matplotlib.pyplot as plt
@@ -518,12 +598,19 @@ def _save_deletion_plot(comparison: dict) -> Path:
     out = _out("deletion_curves.png")
     out.parent.mkdir(parents=True, exist_ok=True)
     k = comparison["k_masked"]
-    plt.figure(figsize=(7, 5))
-    plt.plot(k, comparison["shap_curve"], marker="o", label="KernelSHAP")
-    plt.plot(k, comparison["deeplift_curve"], marker="s", label="DeepLIFT")
+    plt.figure(figsize=(8, 5))
+    plt.plot(k, comparison["shap_curve"], marker="o", label=f"KernelSHAP (AUC {comparison['shap_mean_deletion_auc']:.3f})")
+    plt.plot(k, comparison["deeplift_curve"], marker="s", label=f"DeepLIFT (AUC {comparison['deeplift_mean_deletion_auc']:.3f})")
+    if "random_control" in comparison:
+        plt.plot(k, comparison["random_control"]["deletion_curve"], "--", color="gray",
+                 label=f"Random Control (AUC {comparison['random_control']['deletion_auc']:.3f})")
+    if tree_del is not None and treeshap is not None:
+        plt.plot(tree_del["k_masked"], tree_del["mean_probability"], marker="^",
+                 label=f"TreeSHAP on XGBoost (AUC {treeshap['deletion_auc']:.3f})")
+
     plt.xlabel("Features masked (most attributed first)")
     plt.ylabel("Mean probability of the explained class")
-    plt.title("Deletion curves — lower AUC is more faithful")
+    plt.title("Faithfulness Deletion Curves (lower AUC = more faithful)")
     plt.legend()
     plt.grid(alpha=0.3)
     plt.tight_layout()
@@ -640,26 +727,106 @@ def _save_tier1_markdown(alerts: list[dict]) -> Path:
 
 def run_response(ctx: Phase4Context, tiered_result: dict | None = None,
                  **_) -> dict:
-    """Replay alerts through the tiered engine, then exercise the safety rails."""
-    from src.response import ResponseEngine
+    """
+    Tiered automated response with temperature-scaled confidence and mixed stream replay.
+
+    Evaluates:
+    1. Confidence calibration: ECE and reliability diagram before and after temperature scaling.
+    2. Threshold-governed action decisions (0.7 rate-limit, 0.9 block).
+    3. Mixed stream replay: benign vs attack hosts, reporting attacks mitigated,
+       benign hosts wrongly blocked, and attacks downgraded by the rate limiter.
+    4. Safety rails: NFR10 burst budget, manual rollback, automatic TTL unblock.
+    """
+    from src.evaluation.calibration import (
+        expected_calibration_error,
+        reliability_diagram_data,
+        TemperatureScaler,
+    )
+    from src.response import ResponseEngine, replay_mixed_stream
 
     alerts = (tiered_result or {}).get("_alerts")
     if alerts is None:
         raise RuntimeError("Response component needs the tiered component "
                            "(run --components tiered response).")
 
+    # 1. Temperature scaling calibration
+    print("[response] fitting TemperatureScaler on validation probabilities ...")
+    calibrator = TemperatureScaler()
+    val_n = min(1000, len(ctx.X_train))
+    val_probs = ctx.xgb.predict_proba(ctx.X_train[:val_n])
+    val_labels = ctx.y_train[:val_n]
+    calibrator.fit(val_probs, val_labels)
+
+    raw_test_probs = ctx.xgb.predict_proba(ctx.X_test)
+    cal_test_probs = calibrator.predict_proba(raw_test_probs)
+
+    ece_before = expected_calibration_error(ctx.y_test, raw_test_probs)
+    ece_after = expected_calibration_error(ctx.y_test, cal_test_probs)
+    rel_diagram = reliability_diagram_data(ctx.y_test, cal_test_probs)
+
+    calibration_summary = {
+        "fitted_temperature": float(calibrator.temperature_),
+        "ece_before_calibration": float(ece_before["ece"]),
+        "ece_after_calibration": float(ece_after["ece"]),
+        "mce_before": float(ece_before["mce"]),
+        "mce_after": float(ece_after["mce"]),
+        "calibration_improved": bool(ece_after["ece"] <= ece_before["ece"]),
+        "reliability_diagram": {
+            "bin_edges": rel_diagram["bin_edges"],
+            "bin_confs": rel_diagram["bin_confs"],
+            "bin_accs": rel_diagram["bin_accs"],
+            "bin_counts": rel_diagram["bin_counts"],
+        },
+    }
+
+    # 2. Response replay for alerts using calibrated confidence
     engine = ResponseEngine.from_config()
     log = []
     for alert in alerts:
+        # Scale alert confidence via temperature
+        raw_c = float(alert["confidence"])
+        temp = max(calibrator.temperature_, 1e-6)
+        cal_c = float(np.clip(raw_c ** (1.0 / temp), 0.0, 1.0))
         log.append(engine.execute({
-            "confidence": alert["confidence"],
+            "confidence": cal_c,
+            "raw_confidence": raw_c,
             "severity": alert["severity"],
             "source_ip": alert["source_ip"],
             "label": alert["label"],
             "alert_id": alert["alert_id"],
+            "true_label": alert.get("true_label"),
         }))
 
     stats = engine.stats()
+
+    # 3. Mixed stream replay: evaluate mitigation and false-positive blocking
+    print("[response] replaying mixed stream of benign and attack hosts ...")
+    stream_size = min(500, len(ctx.test_df))
+    stream_indices = np.linspace(0, len(ctx.test_df) - 1, stream_size, dtype=int)
+    test_preds = ctx.xgb.predict(ctx.X_test)
+    cal_top_confs = cal_test_probs.max(axis=1)
+
+    mixed_events = []
+    for idx in stream_indices:
+        row_df = ctx.test_df.iloc[idx]
+        sess_id = str(row_df.get("session_id", ""))
+        src_ip = ctx.session_to_ip.get(sess_id, f"10.0.0.{100 + (idx % 25)}")
+        pred_lbl = str(test_preds[idx])
+        true_lbl = str(row_df["label"])
+        sev = ("HIGH" if pred_lbl in ("DoS", "DDoS", "Botnet")
+               else ("MEDIUM" if pred_lbl in ("BruteForce", "WebAttack") else "LOW"))
+        mixed_events.append({
+            "source_ip": src_ip,
+            "true_label": true_lbl,
+            "label": pred_lbl,
+            "confidence": float(cal_top_confs[idx]),
+            "severity": sev,
+            "alert_id": f"STREAM-{idx:05d}",
+        })
+
+    stream_engine = ResponseEngine(max_blocks_per_minute=10, dry_run=True)
+    replay_summary = replay_mixed_stream(mixed_events, engine=stream_engine)
+    stream_engine.shutdown()
 
     # --- NFR10 burst test: distinct hosts, more than the budget allows -----
     burst_engine = ResponseEngine(max_blocks_per_minute=10, dry_run=True)
@@ -701,15 +868,27 @@ def run_response(ctx: Phase4Context, tiered_result: dict | None = None,
         "tiers_exercised": sorted(counts),
         "dry_run": stats["dry_run"],
         "unique_source_ips": sorted({r["source_ip"] for r in log}),
+        "calibration": calibration_summary,
+        "mixed_stream_replay": {
+            "n_events": replay_summary["n_events"],
+            "n_attack_events": replay_summary["n_attack_events"],
+            "n_benign_events": replay_summary["n_benign_events"],
+            "attacks_mitigated": replay_summary["attacks_mitigated"],
+            "attacks_mitigated_rate": replay_summary["attacks_mitigated_rate"],
+            "attacks_blocked": replay_summary["attacks_blocked"],
+            "attacks_rate_limited": replay_summary["attacks_rate_limited"],
+            "attacks_downgraded_by_rate_limiter": replay_summary["attacks_downgraded_by_rate_limiter"],
+            "benign_hosts_wrongly_blocked": replay_summary["benign_hosts_wrongly_blocked"],
+            "n_benign_hosts_wrongly_blocked": replay_summary["n_benign_hosts_wrongly_blocked"],
+            "benign_events_wrongly_blocked": replay_summary["benign_events_wrongly_blocked"],
+            "benign_block_rate": replay_summary["benign_block_rate"],
+            "action_by_true_label": replay_summary["action_by_true_label"],
+        },
         "stats": stats,
-        # The full replay is kept: the dashboard labels every alert with the
-        # action the engine took for it, and a truncated log silently left 110
-        # of 150 alerts without an action in the feed.
         "log": log,
         "burst_test": {
             "description": ("15 distinct high-confidence hosts replayed against "
-                            "a 10 blocks/minute budget (synthetic addresses, "
-                            "exercises NFR10)"),
+                            "a 10 blocks/minute budget (exercises NFR10)"),
             "n_attempted": len(burst),
             "max_blocks_per_minute": burst_stats["max_blocks_per_minute"],
             "n_blocked": burst_blocked,
