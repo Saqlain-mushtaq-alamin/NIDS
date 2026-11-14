@@ -125,34 +125,107 @@ def _clean_infinities_and_nans(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _read_csv_with_fallback(file_path: Path) -> pd.DataFrame:
+    """Read CSV with encoding fallback: utf-8 -> cp1252 -> latin-1."""
+    encodings = ["utf-8", "cp1252", "latin1"]
+    last_err = None
+    for enc in encodings:
+        try:
+            return pd.read_csv(file_path, low_memory=False, engine="c", encoding=enc)
+        except (UnicodeDecodeError, UnicodeError) as e:
+            last_err = e
+            continue
+    if last_err is not None:
+        raise last_err
+    raise RuntimeError(f"Could not read {file_path}")
+
+
 def _load_cic_ids_2017(data_dir: Path) -> pd.DataFrame:
-    """Load and merge CIC-IDS2017 CSV files (supporting TrafficLabelling folder structure)."""
+    """
+    Load and merge CIC-IDS2017 CSV files (supporting TrafficLabelling folder structure).
+    - Encoding fallback (utf-8 -> cp1252 -> latin-1)
+    - Strip whitespace from column names BEFORE validation
+    - Replace +/-inf with NaN
+    - Handle duplicate 'Fwd Header Length' column
+    """
     csv_files = _find_csv_files(data_dir, "*.csv", subfolder="TrafficLabelling")
     dfs = []
     for f in csv_files:
-        try:
-            df = pd.read_csv(f, low_memory=False, engine="c", encoding="utf-8")
-        except UnicodeDecodeError:
-            df = pd.read_csv(f, low_memory=False, engine="c", encoding="latin1")
+        df = _read_csv_with_fallback(f)
+        # Strip whitespace BEFORE validation
         df = _standardize_columns(df)
+        # Replace infinities
+        df = _clean_infinities_and_nans(df)
+        # Handle duplicate "Fwd Header Length" column
+        if "Fwd Header Length.1" in df.columns:
+            df = df.drop(columns=["Fwd Header Length.1"])
+        df = df.loc[:, ~df.columns.duplicated(keep="first")]
         dfs.append(df)
     merged = pd.concat(dfs, ignore_index=True)
+    merged = merged.loc[:, ~merged.columns.duplicated(keep="first")]
     return merged
 
 
-def _load_unsw_nb15(data_dir: Path) -> pd.DataFrame:
-    """Load and merge all UNSW-NB15 CSV files."""
-    csv_files = _find_csv_files(data_dir, "*.csv")
+def _load_unsw_nb15(data_dir: Path) -> tuple[pd.DataFrame, str]:
+    """
+    Load and merge UNSW-NB15 CSV files.
+    Supports either:
+    1. Official partitioned sets: UNSW_NB15_training-set.csv + UNSW_NB15_testing-set.csv (variant: 'partitioned')
+    2. Raw 4 CSV files (UNSW-NB15_1..4.csv) with column names from NUSW-NB15_features.csv (variant: 'raw_full')
+    """
+    # Check for partitioned variant first
+    train_candidates = list(data_dir.glob("*training-set*.csv"))
+    test_candidates = list(data_dir.glob("*testing-set*.csv"))
+
+    if train_candidates and test_candidates:
+        train_file = train_candidates[0]
+        test_file = test_candidates[0]
+        logger.info("Loading UNSW-NB15 partitioned set: %s and %s", train_file.name, test_file.name)
+        df_train = _read_csv_with_fallback(train_file)
+        df_test = _read_csv_with_fallback(test_file)
+        df_train = _clean_infinities_and_nans(_standardize_columns(df_train))
+        df_test = _clean_infinities_and_nans(_standardize_columns(df_test))
+        merged = pd.concat([df_train, df_test], ignore_index=True)
+        return merged, "partitioned"
+
+    # Otherwise load raw 4 CSVs
+    raw_files = sorted(data_dir.glob("*UNSW-NB15_[1-4]*.csv"))
+    if not raw_files:
+        # Fallback to general CSV glob excluding features file
+        raw_files = [f for f in sorted(data_dir.glob("*.csv")) if "feature" not in f.name.lower()]
+
+    if not raw_files:
+        raise FileNotFoundError(f"No UNSW-NB15 data CSV files found in {data_dir}")
+
+    # Check for NUSW-NB15_features.csv
+    features_csv = data_dir / "NUSW-NB15_features.csv"
+    if not features_csv.exists():
+        found = list(data_dir.glob("*feature*.csv"))
+        if found:
+            features_csv = found[0]
+
+    col_names = None
+    if features_csv.exists():
+        logger.info("Reading UNSW-NB15 column names from features file: %s", features_csv.name)
+        fdf = _read_csv_with_fallback(features_csv)
+        name_col = next((c for c in fdf.columns if c.strip().lower() in ("name", "feature name")), None)
+        if name_col:
+            col_names = [str(x).strip() for x in fdf[name_col].dropna().tolist()]
+        elif len(fdf.columns) >= 2:
+            col_names = [str(x).strip() for x in fdf.iloc[:, 1].dropna().tolist()]
+
     dfs = []
-    for f in csv_files:
-        try:
-            df = pd.read_csv(f, low_memory=False, engine="c", encoding="utf-8")
-        except UnicodeDecodeError:
-            df = pd.read_csv(f, low_memory=False, engine="c", encoding="latin1")
+    for f in raw_files:
+        df = _read_csv_with_fallback(f)
         df = _standardize_columns(df)
+        # If columns are unnamed integers or match feature count, assign names
+        if col_names and len(df.columns) == len(col_names):
+            if not any(c.lower() in ("srcip", "dur", "proto") for c in df.columns):
+                df.columns = col_names
+        df = _clean_infinities_and_nans(df)
         dfs.append(df)
     merged = pd.concat(dfs, ignore_index=True)
-    return merged
+    return merged, "raw_full"
 
 
 def _load_nf_v2(data_dir: Path, dataset_name: str) -> pd.DataFrame:
