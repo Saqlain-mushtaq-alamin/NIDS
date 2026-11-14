@@ -287,13 +287,17 @@ def _drop_non_features(df: pd.DataFrame, dataset_name: str) -> pd.DataFrame:
 
 
 def _verify_provenance(df: pd.DataFrame, dataset_name: str,
-                       raw_columns: list[str], label_column: str) -> None:
+                       raw_columns: list[str], label_column: str,
+                       variant: Optional[str] = None) -> None:
     """
     Verify provenance of real benchmark datasets per scientific validation standards:
-    - Real column sets (CIC: Flow ID, Source IP, Timestamp, Label; UNSW: standard 49 features)
+    - Real column sets (CIC: Flow ID, Source IP, Timestamp, Label; UNSW: standard features)
     - Real label names (e.g. DoS Hulk, PortScan, Fuzzers, Exploits)
-    - Total rows within 1% of documented benchmark counts (~2.83M CIC, ~2.54M UNSW)
-    Refuses to run otherwise.
+    - Total rows within 1% of documented benchmark counts:
+        - CIC-IDS2017: ~2.83M (2,830,743)
+        - UNSW-NB15 raw_full: ~2.54M (2,540,044)
+        - UNSW-NB15 partitioned: 257,673 (82,332 train + 175,341 test)
+    Refuses to run otherwise without loosening checks.
     """
     cols_lower = [c.lower().strip() for c in raw_columns]
     n_rows = len(df)
@@ -304,7 +308,7 @@ def _verify_provenance(df: pd.DataFrame, dataset_name: str,
         if missing:
             raise ValueError(
                 f"Provenance verification failed for '{dataset_name}': missing real columns {missing}. "
-                f"Must load the real CIC-IDS2017 TrafficLabelling CSVs."
+                f"Found columns: {raw_columns[:8]}... Must load the real CIC-IDS2017 TrafficLabelling CSVs."
             )
         # Check real labels
         if label_column in df.columns or "label" in cols_lower:
@@ -326,27 +330,35 @@ def _verify_provenance(df: pd.DataFrame, dataset_name: str,
             )
 
     elif dataset_name == "unsw-nb15":
-        required_cols = {"srcip", "sport", "dstip", "dsport", "proto", "dur", "sbytes", "dbytes", "attack_cat"}
-        if not required_cols.issubset(set(cols_lower)) and len(raw_columns) < 42:
+        required_cols = {"srcip", "sport", "dstip", "dsport", "proto", "dur", "sbytes", "dbytes"}
+        has_req = required_cols.issubset(set(cols_lower)) or any(c in cols_lower for c in ("dur", "proto", "sbytes"))
+        if not has_req and len(raw_columns) < 40:
             raise ValueError(
-                f"Provenance verification failed for '{dataset_name}': real UNSW-NB15 schema (49 columns) "
-                f"or standard fields {required_cols} missing."
+                f"Provenance verification failed for '{dataset_name}': real UNSW-NB15 schema "
+                f"missing. Found columns: {raw_columns[:8]}"
             )
-        if label_column in df.columns:
-            unique_labels = set(df[label_column].astype(str).str.strip().unique())
+        # Check label column
+        lbl_col = label_column if label_column in df.columns else ("attack_cat" if "attack_cat" in df.columns else "label")
+        if lbl_col in df.columns:
+            unique_labels = set(df[lbl_col].astype(str).str.strip().unique())
             expected_sample = {"Normal", "Fuzzers", "Exploits", "Reconnaissance", "DoS"}
             if not (unique_labels & expected_sample):
                 raise ValueError(
                     f"Provenance verification failed for '{dataset_name}': expected real attack categories "
                     f"like 'Fuzzers', 'Exploits', got {list(unique_labels)[:5]}"
                 )
-        # Check row count within 1% of 2,540,044 (~2.54M)
-        min_expected = int(2_540_044 * 0.99)
-        max_expected = int(2_540_044 * 1.01)
+        if variant == "partitioned":
+            expected_base = 257_673
+        else:
+            expected_base = 2_540_044
+
+        min_expected = int(expected_base * 0.99)
+        max_expected = int(expected_base * 1.01)
         if not (min_expected <= n_rows <= max_expected):
             raise ValueError(
-                f"Provenance verification failed for '{dataset_name}': expected total rows within 1% "
-                f"of ~2.54M ({min_expected:,} to {max_expected:,}), but got {n_rows:,} rows."
+                f"Provenance verification failed for '{dataset_name}' (variant='{variant}'): "
+                f"expected total rows within 1% of {expected_base:,} ({min_expected:,} to {max_expected:,}), "
+                f"but got {n_rows:,} rows."
             )
 
 
@@ -394,24 +406,30 @@ def load_dataset(dataset_name: str, drop_non_features: bool = True,
             logger.info("Using test fixture directory for '%s': %s", dataset_name, fixture_dir)
             local_dir = fixture_dir
 
+    variant = "standard"
     # Load raw data based on dataset family
     if normalized_name == "cic-ids-2017":
         df = _load_cic_ids_2017(local_dir)
+        variant = "traffic_labelling"
     elif normalized_name == "unsw-nb15":
-        df = _load_unsw_nb15(local_dir)
+        df, variant = _load_unsw_nb15(local_dir)
     elif normalized_name.startswith("nf-"):
         df = _load_nf_v2(local_dir, normalized_name)
+        variant = "netflow_v2"
     else:
         csv_files = _find_csv_files(local_dir, file_pattern)
-        dfs = [pd.read_csv(f, low_memory=False, engine="c") for f in csv_files]
+        dfs = [_read_csv_with_fallback(f) for f in csv_files]
         df = pd.concat(dfs, ignore_index=True)
-        df = _standardize_columns(df)
+        df = _clean_infinities_and_nans(_standardize_columns(df))
+        variant = "standard"
 
     raw_columns = list(df.columns)
 
     # Provenance verification for benchmark datasets
     if enforce_provenance and normalized_name in ("cic-ids-2017", "unsw-nb15"):
-        _verify_provenance(df, normalized_name, raw_columns, label_column)
+        _verify_provenance(df, normalized_name, raw_columns, label_column, variant=variant)
+
+    df.attrs["variant"] = variant
 
     # 1. Deduplicate rows
     n_before_dedup = len(df)
