@@ -330,7 +330,8 @@ class CrossDatasetEvaluator:
         if isinstance(payload, pd.DataFrame):
             frame = payload
         elif isinstance(payload, str):
-            frame = load_dataset(payload)
+            enforce_prov = (self.min_test_rows > 0)
+            frame = load_dataset(payload, enforce_provenance=enforce_prov)
         elif isinstance(payload, Mapping):
             if "X" not in payload or "y" not in payload:
                 raise CrossDatasetError(
