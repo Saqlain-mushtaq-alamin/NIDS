@@ -81,3 +81,40 @@ def test_validate_phase5_class_balance_guard():
     with pytest.raises(ValueError, match="Phase 5 requires >= 500 attack and >= 500 benign flows"):
         validate_results_provenance(stamp, is_phase5=True)
 
+
+def test_provenance_validator_cic_row_count_check():
+    from src.data.loader import _verify_provenance
+    cols = ["Flow ID", "Source IP", "Timestamp", "Label", "Fwd Packet Length Max"]
+    # Only 10,000 rows instead of ~2.83M -> must raise
+    df = pd.DataFrame({c: [0]*10000 for c in cols})
+    df["Label"] = "BENIGN"
+    with pytest.raises(ValueError, match=r"expected total rows within 1% of ~2.83M"):
+        _verify_provenance(df, "cic-ids-2017", cols, "Label")
+
+
+def test_provenance_validator_unsw_partitioned_variant():
+    from src.data.loader import _verify_provenance
+    cols = ["srcip", "sport", "dstip", "dsport", "proto", "dur", "sbytes", "dbytes", "attack_cat"]
+    # 257,673 rows is standard partitioned set
+    n_part = 257673
+    df = pd.DataFrame({c: [0]*10 for c in cols})
+    df["attack_cat"] = "Normal"
+    # Test wrong row count for partitioned variant
+    with pytest.raises(ValueError, match=r"expected total rows within 1% of 257,673"):
+        _verify_provenance(df, "unsw-nb15", cols, "attack_cat", variant="partitioned")
+
+
+def test_cic_duplicate_fwd_header_length_handling(tmp_path):
+    from src.data.loader import _load_cic_ids_2017
+    # Create CSV with duplicate 'Fwd Header Length'
+    csv_file = tmp_path / "test_dup.csv"
+    csv_file.write_text(
+        "Flow ID, Source IP, Timestamp, Label, Fwd Header Length, Fwd Header Length.1\n"
+        "1,192.168.1.1,2017-07-07 08:00:00,BENIGN,20,20\n",
+        encoding="utf-8"
+    )
+    df = _load_cic_ids_2017(tmp_path)
+    assert "Fwd Header Length.1" not in df.columns
+    assert list(df.columns).count("Fwd Header Length") == 1
+
+
