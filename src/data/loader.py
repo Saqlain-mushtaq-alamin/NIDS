@@ -186,24 +186,73 @@ def _load_cic_ids_2017(data_dir: Path) -> pd.DataFrame:
     Load and merge CIC-IDS2017 CSV files (supporting TrafficLabelling folder structure).
     - Encoding fallback (utf-8 -> cp1252 -> latin-1)
     - Strip whitespace from column names BEFORE validation
+    - Drop blank rows (e.g. 288,602 trailing NaNs in Thursday WebAttacks) BEFORE row count checks
+    - Store raw label in 'label_raw'
+    - Parse Timestamp (hours 1-7 -> 13-19)
     - Replace +/-inf with NaN
     - Handle duplicate 'Fwd Header Length' column
     """
     csv_files = _find_csv_files(data_dir, "*.csv", subfolder="TrafficLabelling")
     dfs = []
+    total_raw_rows = 0
+    total_blank_dropped = 0
+    file_ts_ranges = {}
+
+    print(f"\nLoading CIC-IDS2017 from {len(csv_files)} files...")
     for f in csv_files:
         df = _read_csv_with_fallback(f)
+        raw_count = len(df)
+        total_raw_rows += raw_count
+
         # Strip whitespace BEFORE validation
         df = _standardize_columns(df)
+
+        # Locate label column case-insensitively
+        label_col = next((c for c in df.columns if c.strip().lower() == "label"), None)
+        if not label_col:
+            raise KeyError(f"Could not find 'Label' column in {f.name}. Found columns: {list(df.columns)[:5]}")
+
+        # Drop trailing blank rows BEFORE +/-1% row count check and before anything else
+        blank_mask = df[label_col].isna() | df.isna().all(axis=1)
+        blank_count = int(blank_mask.sum())
+        if blank_count > 0:
+            df = df.loc[~blank_mask].copy()
+        total_blank_dropped += blank_count
+
+        # Store raw label in label_raw
+        df["label_raw"] = df[label_col].astype(str).str.strip()
+
+        # Parse Timestamp if present
+        ts_col = next((c for c in df.columns if "timestamp" in c.lower()), None)
+        if ts_col:
+            parsed_ts = _parse_cic_timestamp(df[ts_col])
+            df[ts_col] = parsed_ts
+            ts_min = parsed_ts.min()
+            ts_max = parsed_ts.max()
+            file_ts_ranges[f.name] = (ts_min, ts_max)
+            print(f"  - {f.name}: raw={raw_count:,}, dropped_blanks={blank_count:,}, clean={len(df):,}, ts=[{ts_min} to {ts_max}]")
+        else:
+            print(f"  - {f.name}: raw={raw_count:,}, dropped_blanks={blank_count:,}, clean={len(df):,}")
+
         # Replace infinities
         df = _clean_infinities_and_nans(df)
+
         # Handle duplicate "Fwd Header Length" column
         if "Fwd Header Length.1" in df.columns:
             df = df.drop(columns=["Fwd Header Length.1"])
         df = df.loc[:, ~df.columns.duplicated(keep="first")]
         dfs.append(df)
+
     merged = pd.concat(dfs, ignore_index=True)
     merged = merged.loc[:, ~merged.columns.duplicated(keep="first")]
+
+    clean_total = len(merged)
+    print(f"\nCIC-IDS2017 Cleaning Summary:")
+    print(f"  Total raw lines:          {total_raw_rows:,}")
+    print(f"  Total blank rows dropped: {total_blank_dropped:,}")
+    print(f"  Total clean rows:         {clean_total:,} (Expected: 2,830,743)")
+
+    merged.attrs["file_ts_ranges"] = file_ts_ranges
     return merged
 
 
@@ -214,9 +263,19 @@ def _load_unsw_nb15(data_dir: Path) -> tuple[pd.DataFrame, str]:
     1. Official partitioned sets: UNSW_NB15_training-set.csv + UNSW_NB15_testing-set.csv (variant: 'partitioned')
     2. Raw 4 CSV files (UNSW-NB15_1..4.csv) with column names from NUSW-NB15_features.csv (variant: 'raw_full')
     """
+    seen = set()
+    def _dedup_paths(paths):
+        res = []
+        for p in paths:
+            k = str(p.resolve()).lower()
+            if k not in seen and p.is_file():
+                seen.add(k)
+                res.append(p.resolve())
+        return sorted(res)
+
     # Check for partitioned variant first
-    train_candidates = list(data_dir.glob("*training-set*.csv"))
-    test_candidates = list(data_dir.glob("*testing-set*.csv"))
+    train_candidates = _dedup_paths(data_dir.glob("*training-set*.csv"))
+    test_candidates = _dedup_paths(data_dir.glob("*testing-set*.csv"))
 
     if train_candidates and test_candidates:
         train_file = train_candidates[0]
@@ -224,16 +283,35 @@ def _load_unsw_nb15(data_dir: Path) -> tuple[pd.DataFrame, str]:
         logger.info("Loading UNSW-NB15 partitioned set: %s and %s", train_file.name, test_file.name)
         df_train = _read_csv_with_fallback(train_file)
         df_test = _read_csv_with_fallback(test_file)
+
+        raw_total = len(df_train) + len(df_test)
+        print(f"\nUNSW-NB15 Partitioned variant:")
+        print(f"  - {train_file.name}: {len(df_train):,} rows")
+        print(f"  - {test_file.name}: {len(df_test):,} rows")
+        print(f"  Total raw rows before deduplication: {raw_total:,}")
+
         df_train = _clean_infinities_and_nans(_standardize_columns(df_train))
         df_test = _clean_infinities_and_nans(_standardize_columns(df_test))
         merged = pd.concat([df_train, df_test], ignore_index=True)
+
+        # Drop "id" column from features immediately
+        id_cols = [c for c in merged.columns if c.strip().lower() == "id"]
+        if id_cols:
+            merged.drop(columns=id_cols, inplace=True)
+            print(f"  Dropped dataset ID column: {id_cols}")
+
+        # Store raw attack_cat in label_raw
+        raw_lbl_col = next((c for c in merged.columns if c.strip().lower() in ("attack_cat", "attack", "label")), None)
+        if raw_lbl_col:
+            merged["label_raw"] = merged[raw_lbl_col].astype(str).str.strip()
+
         return merged, "partitioned"
 
     # Otherwise load raw 4 CSVs
-    raw_files = sorted(data_dir.glob("*UNSW-NB15_[1-4]*.csv"))
+    raw_files = _dedup_paths(sorted(data_dir.glob("*UNSW-NB15_[1-4]*.csv")))
     if not raw_files:
         # Fallback to general CSV glob excluding features file
-        raw_files = [f for f in sorted(data_dir.glob("*.csv")) if "feature" not in f.name.lower()]
+        raw_files = _dedup_paths([f for f in sorted(data_dir.glob("*.csv")) if "feature" not in f.name.lower()])
 
     if not raw_files:
         raise FileNotFoundError(f"No UNSW-NB15 data CSV files found in {data_dir}")
@@ -259,13 +337,22 @@ def _load_unsw_nb15(data_dir: Path) -> tuple[pd.DataFrame, str]:
     for f in raw_files:
         df = _read_csv_with_fallback(f)
         df = _standardize_columns(df)
-        # If columns are unnamed integers or match feature count, assign names
         if col_names and len(df.columns) == len(col_names):
             if not any(c.lower() in ("srcip", "dur", "proto") for c in df.columns):
                 df.columns = col_names
         df = _clean_infinities_and_nans(df)
         dfs.append(df)
     merged = pd.concat(dfs, ignore_index=True)
+
+    # Drop id if present
+    id_cols = [c for c in merged.columns if c.strip().lower() == "id"]
+    if id_cols:
+        merged.drop(columns=id_cols, inplace=True)
+
+    raw_lbl_col = next((c for c in merged.columns if c.strip().lower() in ("attack_cat", "attack", "label")), None)
+    if raw_lbl_col:
+        merged["label_raw"] = merged[raw_lbl_col].astype(str).str.strip()
+
     return merged, "raw_full"
 
 
