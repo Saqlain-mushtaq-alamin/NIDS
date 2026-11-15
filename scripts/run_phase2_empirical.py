@@ -1245,19 +1245,37 @@ def main() -> None:
     print("=" * 80)
 
     # Compile Final JSON Report with Provenance Stamp
+    source_files_dict = {}
+    for f in _find_csv_files(cic_dir, "*.csv", subfolder="TrafficLabelling"):
+        rel_p = str(f.relative_to(_PROJECT_ROOT)).replace("\\", "/")
+        source_files_dict[rel_p] = {"rows": count_file_rows(f), "sha256": compute_file_sha256(f)}
+    for p_u in [_PROJECT_ROOT / "data" / "raw" / "unsw-nb15" / "UNSW_NB15_training-set.csv",
+                _PROJECT_ROOT / "data" / "raw" / "unsw-nb15" / "UNSW_NB15_testing-set.csv"]:
+        rel_p = str(p_u.relative_to(_PROJECT_ROOT)).replace("\\", "/")
+        source_files_dict[rel_p] = {"rows": count_file_rows(p_u), "sha256": compute_file_sha256(p_u)}
+
+    combined_counts = {}
+    for k, v in cic_df["label"].value_counts().items():
+        combined_counts[f"cic_{k}"] = int(v)
+    for k, v in unsw_df["label"].value_counts().items():
+        combined_counts[f"unsw_{k}"] = int(v)
+
+    prov_stamp = create_provenance_stamp(
+        data_kind="real",
+        dataset_names=["cic-ids-2017", "unsw-nb15"],
+        source_files=source_files_dict,
+        n_rows=len(cic_df) + len(unsw_df),
+        n_train=len(split_info["primary_tr_indices"]) + len(unsw_part_info["df_tr_dedup"]),
+        n_val=0,
+        n_test=len(split_info["primary_te_indices"]) + len(unsw_part_info["df_te_final"]),
+        class_counts=combined_counts,
+        seed_list=[42],
+        script_name="scripts/run_phase2_empirical.py",
+    )
+    validate_results_provenance(prov_stamp, is_headline=True, min_test_rows=500)
+
     final_report = {
-        "provenance": create_provenance_record(
-            data_kind="real",
-            dataset_names=["cic-ids-2017", "unsw-nb15"],
-            source_files={
-                "cic-ids-2017": [str(f.name) for f in _find_csv_files(cic_dir, "*.csv", subfolder="TrafficLabelling")],
-                "unsw-nb15": ["UNSW_NB15_training-set.csv", "UNSW_NB15_testing-set.csv"],
-            },
-            n_rows={"cic": len(cic_df), "unsw": len(unsw_df)},
-            class_counts={"cic": cic_df["label"].value_counts().to_dict(), "unsw": unsw_df["label"].value_counts().to_dict()},
-            seed_list=[42],
-            script_name="scripts/run_phase2_empirical.py",
-        ),
+        "provenance": prov_stamp,
         "execution_metadata": {
             "seed": 42,
             "wall_clock_seconds": total_time,
