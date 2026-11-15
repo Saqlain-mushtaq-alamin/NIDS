@@ -1208,6 +1208,46 @@ def main() -> None:
     print(f"  RandomForest Model Family:                        AUROC = {res_rf['auroc']:.4f}, PR-AUC = {res_rf['prauc']:.4f}, MCC = {res_rf['mcc_at_source_threshold']:.4f}")
     print(f"  PyTorch DNN Model Family:                         AUROC = {res_dnn['auroc']:.4f}, PR-AUC = {res_dnn['prauc']:.4f}, MCC = {res_dnn['mcc_at_source_threshold']:.4f}")
 
+    # Ablation 6: CIC In-Domain Port/Protocol Leakage Quantification
+    print("\n--- CIC IN-DOMAIN LEAKAGE QUANTIFICATION (With vs Without Port/Protocol) ---")
+    cic_76_cols = [c for c in cic_df.columns if c not in ("label", "label_raw", "_parsed_ts", "_parsed_end_ts", "_file", "_day", "_orig_row")]
+    # Extract clean 76 features
+    sample_sub = 50_000
+    rng_sub = np.random.default_rng(42)
+    tr_sub_idx = rng_sub.choice(split_info["primary_tr_indices"], size=min(sample_sub, len(split_info["primary_tr_indices"])), replace=False)
+    te_sub_idx = rng_sub.choice(split_info["primary_te_indices"], size=min(sample_sub, len(split_info["primary_te_indices"])), replace=False)
+
+    df_cic_tr_sub = cic_df.loc[tr_sub_idx]
+    df_cic_te_sub = cic_df.loc[te_sub_idx]
+    y_cic_tr_sub = (df_cic_tr_sub["label"] != "Benign").astype(int).values
+    y_cic_te_sub = (df_cic_te_sub["label"] != "Benign").astype(int).values
+
+    X_clean_tr = df_cic_tr_sub[cic_76_cols].values
+    X_clean_te = df_cic_te_sub[cic_76_cols].values
+    s_clean = RobustScaler().fit(X_clean_tr)
+
+    xgb_clean = XGBClassifier(n_estimators=100, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=4)
+    xgb_clean.fit(s_clean.transform(X_clean_tr), y_cic_tr_sub)
+    p_clean = xgb_clean.predict_proba(s_clean.transform(X_clean_te))[:, 1]
+    auroc_clean = float(roc_auc_score(y_cic_te_sub, p_clean))
+
+    # Add port and protocol features
+    port_proto_cols = [c for c in ["Source Port", "Destination Port", "Protocol"] if c in df_cic_tr_sub.columns]
+    if port_proto_cols:
+        X_leak_tr = np.column_stack([X_clean_tr, df_cic_tr_sub[port_proto_cols].values])
+        X_leak_te = np.column_stack([X_clean_te, df_cic_te_sub[port_proto_cols].values])
+        s_leak = RobustScaler().fit(X_leak_tr)
+        xgb_leak = XGBClassifier(n_estimators=100, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=4)
+        xgb_leak.fit(s_leak.transform(X_leak_tr), y_cic_tr_sub)
+        p_leak = xgb_leak.predict_proba(s_leak.transform(X_leak_te))[:, 1]
+        auroc_leak = float(roc_auc_score(y_cic_te_sub, p_leak))
+    else:
+        auroc_leak = auroc_clean
+
+    print(f"  CIC In-Domain Clean Features (76 feats):               AUROC = {auroc_clean:.4f}")
+    print(f"  CIC In-Domain With Port/Protocol ({76+len(port_proto_cols)} feats): AUROC = {auroc_leak:.4f}")
+    print(f"  Leakage Delta (dAUROC):                               {auroc_leak - auroc_clean:+.4f}")
+
     # 6.6 Shift Analysis & Dropping Top Shifted Features
     shift_results = run_shift_analysis(
         data_ab["X_cic_tr"], data_ab["y_cic_tr"],
@@ -1315,6 +1355,7 @@ def main() -> None:
                 "unharmonized_units": res_unharm,
                 "random_forest": res_rf,
                 "dnn": res_dnn,
+                "cic_leakage": {"clean_76_auroc": auroc_clean, "leak_port_proto_auroc": auroc_leak, "delta": auroc_leak - auroc_clean},
             },
             "shift_analysis": shift_results,
             "dropped_top_shifted": res_drop_shifted,
