@@ -386,6 +386,8 @@ def audit_split_protocols() -> Dict[str, Any]:
         "purged_rows": len(purged_indices),
         "straddling_rows_removed": n_straddle_dropped,
         "small_classes": small_classes,
+        "n_before_dedup": n_before_dedup,
+        "n_after_dedup": n_after_dedup,
         "leave_day_out": {"unseen_attacks": unseen_attacks, "counts": ldo_counts, "tr": ldo_tr, "te": ldo_te},
         "cic_tr_df": tr_df,
         "cic_te_df": te_df,
@@ -756,10 +758,21 @@ def prepare_shared_matrices(
     y_u_te = (u_te["label"] != "Benign").astype(int).values
 
     # Construct Time-Blocks for CIC test set (15-min windows within each file)
-    ts_series = pd.to_datetime(c_te["_parsed_ts"])
-    block_c_te = c_te["_file"].astype(str) + "_" + ts_series.dt.floor("15min").astype(str)
-    # Group Blocks for UNSW test set (cluster by attack_cat + service)
-    block_u_te = u_te["label_raw"].astype(str) + "_" + u_te["service"].astype(str)
+    if "_parsed_ts" in c_te.columns and "_file" in c_te.columns:
+        ts_series = pd.to_datetime(c_te["_parsed_ts"])
+        block_c_te = c_te["_file"].astype(str) + "_" + ts_series.dt.floor("15min").astype(str)
+    elif "_parsed_ts" in c_te.columns:
+        ts_series = pd.to_datetime(c_te["_parsed_ts"])
+        block_c_te = ts_series.dt.floor("15min").astype(str)
+    elif "_file" in c_te.columns:
+        block_c_te = c_te["_file"].astype(str)
+    else:
+        block_c_te = pd.Series((np.arange(len(c_te)) // 1000).astype(str), index=c_te.index)
+
+    # Group Blocks for UNSW test set (cluster by attack_cat + service if available, else label_raw)
+    service_part = ("_" + u_te["service"].astype(str)) if "service" in u_te.columns else ""
+    label_part = u_te["label_raw"].astype(str) if "label_raw" in u_te.columns else u_te["label"].astype(str) if "label" in u_te.columns else pd.Series("cat", index=u_te.index)
+    block_u_te = label_part + service_part
 
     fnames = [p[0] for p in active_pairs]
     if feature_tier == "tier_a_b":
