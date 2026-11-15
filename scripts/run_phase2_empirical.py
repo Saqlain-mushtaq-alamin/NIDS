@@ -52,6 +52,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from src.data.loader import (
     _clean_infinities_and_nans,
+    _drop_non_features,
     _find_csv_files,
     _load_label_mappings,
     _parse_cic_timestamp,
@@ -127,6 +128,8 @@ def audit_split_protocols() -> Dict[str, Any]:
     merged_cic = pd.concat(dfs, ignore_index=True)
     merged_cic["_orig_row"] = np.arange(len(merged_cic))
     merged_cic = merged_cic.sort_values(by=["_parsed_ts", "_orig_row"], kind="mergesort").reset_index(drop=True)
+    mapping = _load_label_mappings("cic-ids-2017")
+    merged_cic["label"] = merged_cic["label_raw"].map(mapping).fillna("Other")
 
     print(f"{'Class':<30} | {'Train':<10} | {'Test':<10} | {'% Test':<8} | Defect")
     print("-" * 75)
@@ -293,7 +296,8 @@ def audit_deduplication(cic_df: pd.DataFrame, unsw_df: pd.DataFrame) -> Dict[str
     print("=" * 80)
 
     # In-domain feature sets
-    cic_features = [c for c in cic_df.columns if c not in ("label", "label_raw", "_parsed_ts", "_parsed_end_ts", "_file", "_day", "_orig_row")]
+    cic_clean = _drop_non_features(cic_df.copy(), "cic-ids-2017")
+    cic_features = [c for c in cic_clean.columns if c not in ("label", "label_raw", "_parsed_ts", "_parsed_end_ts", "_file", "_day", "_orig_row")]
     unsw_features = [c for c in unsw_df.columns if c not in ("label", "label_raw", "attack_cat", "proto", "service", "state", "id")]
 
     print(f"CIC In-Domain Model Features:  {len(cic_features)} features")
@@ -301,7 +305,7 @@ def audit_deduplication(cic_df: pd.DataFrame, unsw_df: pd.DataFrame) -> Dict[str
 
     # Conflicting labels in feature-identical groups
     print("\nMeasuring feature-identical groups with conflicting unified labels...")
-    cic_conflicts = cic_df.groupby(cic_features)["label"].nunique()
+    cic_conflicts = cic_clean.groupby(cic_features)["label"].nunique()
     cic_conf_groups = int((cic_conflicts > 1).sum())
 
     unsw_conflicts = unsw_df.groupby(unsw_features)["label"].nunique()
