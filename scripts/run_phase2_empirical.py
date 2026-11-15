@@ -792,11 +792,11 @@ def prepare_shared_matrices(
     if len(unsw_te) > subsample_max:
         unsw_te = unsw_te.sample(n=subsample_max, random_state=seed)
 
-    # Extract numerical matrices with unit scaling
-    X_cic_tr = np.column_stack([pd.to_numeric(cic_tr[c[1]], errors="coerce").fillna(0).values * c[3] for c in active_pairs])
-    X_cic_te = np.column_stack([pd.to_numeric(cic_te[c[1]], errors="coerce").fillna(0).values * c[3] for c in active_pairs])
-    X_unsw_tr = np.column_stack([pd.to_numeric(unsw_tr[c[2]], errors="coerce").fillna(0).values * c[4] for c in active_pairs])
-    X_unsw_te = np.column_stack([pd.to_numeric(unsw_te[c[2]], errors="coerce").fillna(0).values * c[4] for c in active_pairs])
+    # Extract numerical matrices with unit scaling and handle inf/nan
+    X_cic_tr = np.column_stack([np.nan_to_num(pd.to_numeric(cic_tr[c[1]], errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0) * c[3] for c in active_pairs])
+    X_cic_te = np.column_stack([np.nan_to_num(pd.to_numeric(cic_te[c[1]], errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0) * c[3] for c in active_pairs])
+    X_unsw_tr = np.column_stack([np.nan_to_num(pd.to_numeric(unsw_tr[c[2]], errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0) * c[4] for c in active_pairs])
+    X_unsw_te = np.column_stack([np.nan_to_num(pd.to_numeric(unsw_te[c[2]], errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0) * c[4] for c in active_pairs])
 
     # Preprocessing: sign(x) * log1p(|x|)
     if log1p:
@@ -1133,7 +1133,7 @@ def main() -> None:
     p_te_raw = _clean_infinities_and_nans(_standardize_columns(p_te_raw))
     p_te_raw["label_raw"] = p_te_raw["attack_cat"].astype(str).str.strip()
     y_raw_te = (p_te_raw["label_raw"] != "Normal").astype(int).values
-    X_raw_te = np.column_stack([pd.to_numeric(p_te_raw[c[2]], errors="coerce").fillna(0).values * c[4] for c in (data_ab["feature_names"] if False else (
+    X_raw_te = np.column_stack([np.nan_to_num(pd.to_numeric(p_te_raw[c[2]], errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0) * c[4] for c in (
         [("flow_duration", "Flow Duration", "dur", 1e-6, 1.0),
          ("total_fwd_packets", "Total Fwd Packets", "spkts", 1.0, 1.0),
          ("total_bwd_packets", "Total Backward Packets", "dpkts", 1.0, 1.0),
@@ -1144,7 +1144,7 @@ def main() -> None:
          ("fwd_packet_length_mean", "Fwd Packet Length Mean", "smean", 1.0, 1.0),
          ("bwd_packet_length_mean", "Bwd Packet Length Mean", "dmean", 1.0, 1.0),
          ("flow_packet_rate", "Flow Packets/s", "rate", 1.0, 1.0)]
-    ))])
+    )])
     X_raw_te_s = scaler_cic.transform(X_raw_te)
     p_raw = xgb_cic.predict_proba(X_raw_te_s)[:, 1]
     auroc_raw = float(roc_auc_score(y_raw_te, p_raw))
@@ -1226,8 +1226,8 @@ def main() -> None:
     y_cic_tr_sub = (df_cic_tr_sub["label"] != "Benign").astype(int).values
     y_cic_te_sub = (df_cic_te_sub["label"] != "Benign").astype(int).values
 
-    X_clean_tr = df_cic_tr_sub[cic_76_cols].values
-    X_clean_te = df_cic_te_sub[cic_76_cols].values
+    X_clean_tr = np.nan_to_num(pd.DataFrame(df_cic_tr_sub[cic_76_cols]).apply(pd.to_numeric, errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0)
+    X_clean_te = np.nan_to_num(pd.DataFrame(df_cic_te_sub[cic_76_cols]).apply(pd.to_numeric, errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0)
     s_clean = RobustScaler().fit(X_clean_tr)
 
     xgb_clean = XGBClassifier(n_estimators=100, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=4)
@@ -1238,8 +1238,10 @@ def main() -> None:
     # Add port and protocol features
     port_proto_cols = [c for c in ["Source Port", "Destination Port", "Protocol"] if c in df_cic_tr_sub.columns]
     if port_proto_cols:
-        X_leak_tr = np.column_stack([X_clean_tr, df_cic_tr_sub[port_proto_cols].values])
-        X_leak_te = np.column_stack([X_clean_te, df_cic_te_sub[port_proto_cols].values])
+        port_tr = np.nan_to_num(pd.DataFrame(df_cic_tr_sub[port_proto_cols]).apply(pd.to_numeric, errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0)
+        port_te = np.nan_to_num(pd.DataFrame(df_cic_te_sub[port_proto_cols]).apply(pd.to_numeric, errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0)
+        X_leak_tr = np.column_stack([X_clean_tr, port_tr])
+        X_leak_te = np.column_stack([X_clean_te, port_te])
         s_leak = RobustScaler().fit(X_leak_tr)
         xgb_leak = XGBClassifier(n_estimators=100, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=4)
         xgb_leak.fit(s_leak.transform(X_leak_tr), y_cic_tr_sub)
