@@ -45,3 +45,4 @@ for c in all_c:
     te = te_counts.get(c, 0)
     st = "UNSEEN NOVEL ATTACK" if c in unseen else ("Train-only" if te == 0 else "Shared across days")
     print(f"{c:<30} | {tr:<15,} | {te:<15,} | {st}")
+
