@@ -32,22 +32,30 @@ def audit_directory(dataset_name: str, target_dir: Path) -> dict:
         print(f"[FAIL] Directory does not exist: {target_dir}")
         return {"status": "FAILED", "error": f"Directory missing: {target_dir}"}
 
-    csv_files = list(target_dir.glob("*.csv")) + list(target_dir.glob("**/*.csv"))
+    # Canonical deduplication of files
+    seen = set()
+    csv_files = []
+    for f in sorted(target_dir.rglob("*.csv")):
+        key = str(f.resolve()).lower()
+        if key not in seen and f.is_file():
+            seen.add(key)
+            csv_files.append(f.resolve())
+
     if not csv_files:
         print(f"[FAIL] No CSV files found in {target_dir}")
         return {"status": "FAILED", "error": f"No CSV files found in {target_dir}"}
 
-    print(f"Found {len(csv_files)} CSV file(s):")
-    total_rows = 0
+    print(f"Found {len(csv_files)} unique CSV file(s):")
+    total_raw_rows = 0
     file_stats = []
     for f in csv_files:
         sha = compute_file_sha256(f)
         rows = count_file_rows(f)
-        total_rows += rows
+        total_raw_rows += rows
         file_stats.append({"path": str(f.relative_to(_PROJECT_ROOT)), "rows": rows, "sha256": sha})
         print(f"  - {f.name}: {rows:,} data rows | sha256: {sha}")
 
-    print(f"\nTotal raw data lines across files: {total_rows:,}")
+    print(f"\nTotal raw data lines before deduplication: {total_raw_rows:,}")
 
     # Test loading and provenance validation
     try:
@@ -56,15 +64,47 @@ def audit_directory(dataset_name: str, target_dir: Path) -> dict:
         print(f"[PASS] Successfully loaded '{dataset_name}' with {len(df):,} deduplicated rows!")
         print(f"Variant loaded: {df.attrs.get('variant', 'standard')}")
         print(f"Columns ({len(df.columns)}): {list(df.columns)[:10]}...")
+
+        # Report timestamps if CIC
+        if dataset_name == "cic-ids-2017":
+            ts_ranges = df.attrs.get("file_ts_ranges", {})
+            if ts_ranges:
+                print("\nPer-file Timestamp Ranges (Hours 1-7 afternoon normalized):")
+                for fn, (tmin, tmax) in sorted(ts_ranges.items()):
+                    print(f"  - {fn}: {tmin} to {tmax}")
+
+        # Label distribution
+        if "label_raw" in df.columns:
+            raw_counts = df["label_raw"].value_counts().to_dict()
+            print("\nRaw label counts (label_raw):")
+            for lbl, cnt in raw_counts.items():
+                print(f"  {lbl}: {cnt:,}")
+
         if "label" in df.columns:
             counts = df["label"].value_counts().to_dict()
-            print("Unified label counts:")
+            print("\nUnified label counts (label):")
             for lbl, cnt in counts.items():
                 print(f"  {lbl}: {cnt:,}")
+
+        # UNSW full mapping table and semantic check
+        if dataset_name == "unsw-nb15" and "label_raw" in df.columns:
+            print("\nUNSW Mapping Table (attack_cat -> unified label -> count):")
+            mapping_df = df.groupby(["label_raw", "label"]).size().reset_index(name="count")
+            for _, row in mapping_df.sort_values(by="count", ascending=False).iterrows():
+                print(f"  {row['label_raw']:<16} -> {row['label']:<12} : {row['count']:,}")
+
+            # Check strictly shared classes
+            shared_classes = {"Benign", "DoS", "PortScan"}
+            present_shared = set(counts.keys()) & shared_classes
+            print(f"\nStrictly shared classes present for cross-dataset evaluation: {present_shared}")
+            other_attacks = [k for k in counts.keys() if k not in shared_classes and k != "Benign"]
+            print(f"Non-shared attack categories mapped to Other: {other_attacks}")
+
         return {"status": "PASSED", "rows": len(df), "files": file_stats}
     except Exception as e:
+        import traceback
         print(f"\n[FAIL] Exact Provenance Failure for '{dataset_name}':")
-        print(f"  Error: {type(e).__name__}: {e}")
+        traceback.print_exc()
         return {"status": "FAILED", "error": str(e), "files": file_stats}
 
 

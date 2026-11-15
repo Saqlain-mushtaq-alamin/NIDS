@@ -397,12 +397,12 @@ def _drop_non_features(df: pd.DataFrame, dataset_name: str) -> pd.DataFrame:
     drop_cols = []
     col_lower = {c.lower(): c for c in df.columns}
 
-    for pattern in METADATA_COLUMN_PATTERNS + ["protocol", "proto"]:
+    for pattern in METADATA_COLUMN_PATTERNS + ["protocol", "proto", "id"]:
         if pattern in col_lower:
             drop_cols.append(col_lower[pattern])
 
     for col in df.columns:
-        if col in drop_cols or col.lower() in ("label", "attack"):
+        if col in drop_cols or col.lower() in ("label", "attack", "label_raw"):
             continue
         if df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
             sample = df[col].dropna().head(10)
@@ -438,16 +438,24 @@ def _verify_provenance(df: pd.DataFrame, dataset_name: str,
                 f"Provenance verification failed for '{dataset_name}': missing real columns {missing}. "
                 f"Found columns: {raw_columns[:8]}... Must load the real CIC-IDS2017 TrafficLabelling CSVs."
             )
-        # Check real labels
-        if label_column in df.columns or "label" in cols_lower:
-            lbl_series = df[label_column] if label_column in df.columns else df["label"]
-            unique_labels = set(lbl_series.astype(str).str.strip().unique())
-            expected_sample = {"BENIGN", "DoS Hulk", "PortScan", "DDoS"}
-            if not (unique_labels & expected_sample):
-                raise ValueError(
-                    f"Provenance verification failed for '{dataset_name}': expected real attack labels "
-                    f"like 'DoS Hulk', 'PortScan', got {list(unique_labels)[:5]}"
-                )
+        # Check real labels using label_raw or case-insensitive search
+        if "label_raw" in df.columns:
+            lbl_series = df["label_raw"]
+        elif label_column in df.columns:
+            lbl_series = df[label_column]
+        elif "label" in df.columns:
+            lbl_series = df["label"]
+        else:
+            lbl_col = next((c for c in df.columns if c.strip().lower() == "label"), None)
+            lbl_series = df[lbl_col] if lbl_col else df[df.columns[-1]]
+
+        unique_labels = set(lbl_series.astype(str).str.strip().unique())
+        expected_sample = {"BENIGN", "DoS Hulk", "PortScan", "DDoS"}
+        if not (unique_labels & expected_sample):
+            raise ValueError(
+                f"Provenance verification failed for '{dataset_name}': expected real attack labels "
+                f"like 'DoS Hulk', 'PortScan', got {list(unique_labels)[:5]}"
+            )
         # Check row count within 1% of 2,830,743 (~2.83M)
         min_expected = int(2_830_743 * 0.99)
         max_expected = int(2_830_743 * 1.01)
@@ -466,15 +474,25 @@ def _verify_provenance(df: pd.DataFrame, dataset_name: str,
                 f"missing. Found columns: {raw_columns[:8]}"
             )
         # Check label column
-        lbl_col = label_column if label_column in df.columns else ("attack_cat" if "attack_cat" in df.columns else "label")
-        if lbl_col in df.columns:
-            unique_labels = set(df[lbl_col].astype(str).str.strip().unique())
-            expected_sample = {"Normal", "Fuzzers", "Exploits", "Reconnaissance", "DoS"}
-            if not (unique_labels & expected_sample):
-                raise ValueError(
-                    f"Provenance verification failed for '{dataset_name}': expected real attack categories "
-                    f"like 'Fuzzers', 'Exploits', got {list(unique_labels)[:5]}"
-                )
+        if "label_raw" in df.columns:
+            lbl_series = df["label_raw"]
+        elif label_column in df.columns:
+            lbl_series = df[label_column]
+        elif "attack_cat" in df.columns:
+            lbl_series = df["attack_cat"]
+        elif "label" in df.columns:
+            lbl_series = df["label"]
+        else:
+            lbl_col = next((c for c in df.columns if c.strip().lower() in ("attack_cat", "attack", "label")), None)
+            lbl_series = df[lbl_col] if lbl_col else df[df.columns[-1]]
+
+        unique_labels = set(lbl_series.astype(str).str.strip().unique())
+        expected_sample = {"Normal", "Fuzzers", "Exploits", "Reconnaissance", "DoS"}
+        if not (unique_labels & expected_sample):
+            raise ValueError(
+                f"Provenance verification failed for '{dataset_name}': expected real attack categories "
+                f"like 'Fuzzers', 'Exploits', got {list(unique_labels)[:5]}"
+            )
         if variant == "partitioned":
             expected_base = 257_673
         else:
@@ -576,11 +594,18 @@ def load_dataset(dataset_name: str, drop_non_features: bool = True,
 
     # 4. Apply label mapping
     mappings = _load_label_mappings(normalized_name) or _load_label_mappings(dataset_name)
-    if mappings and label_column in df.columns:
+    if "label_raw" in df.columns and mappings:
+        stripped = df["label_raw"].astype(str).str.strip()
+        mapped = stripped.map(mappings)
+        unmapped = mapped.isna() & stripped.isin(_TAXONOMY)
+        df["label"] = mapped.where(~mapped.isna() | unmapped, "Other")
+    elif mappings and label_column in df.columns:
+        df["label_raw"] = df[label_column].astype(str).str.strip()
         df = _apply_label_mapping(df, normalized_name, label_column, mappings)
     elif "label" not in df.columns:
         for col in df.columns:
             if col.lower() in ("label", "attack_cat", "attack", "class"):
+                df["label_raw"] = df[col].astype(str).str.strip()
                 df = _apply_label_mapping(df, normalized_name, col, mappings)
                 break
 
