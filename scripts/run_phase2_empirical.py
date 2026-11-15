@@ -1107,25 +1107,25 @@ def main() -> None:
     y_tr_sub = (tr_sub["label"] != "Benign").astype(int).values
     y_te_sub = (te_sub["label"] != "Benign").astype(int).values
 
-    X_clean_tr = np.nan_to_num(tr_sub[cic_features].apply(pd.to_numeric, errors="coerce").values, nan=0.0)
-    X_clean_te = np.nan_to_num(te_sub[cic_features].apply(pd.to_numeric, errors="coerce").values, nan=0.0)
+    X_clean_tr = np.nan_to_num(tr_sub[cic_features].apply(pd.to_numeric, errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0)
+    X_clean_te = np.nan_to_num(te_sub[cic_features].apply(pd.to_numeric, errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0)
     s_cl = RobustScaler().fit(X_clean_tr)
 
     xgb_cl = XGBClassifier(n_estimators=100, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=4)
-    xgb_cl.fit(s_cl.transform(X_clean_tr), y_tr_sub)
-    p_cl = xgb_cl.predict_proba(s_cl.transform(X_clean_te))[:, 1]
+    xgb_cl.fit(_sanitize_matrix(s_cl.transform(X_clean_tr)), y_tr_sub)
+    p_cl = xgb_cl.predict_proba(_sanitize_matrix(s_cl.transform(X_clean_te)))[:, 1]
     auroc_clean_6 = float(roc_auc_score(y_te_sub, p_cl))
 
     port_cols = ["Source Port", "Destination Port", "Protocol"]
-    port_tr = np.nan_to_num(tr_sub[port_cols].apply(pd.to_numeric, errors="coerce").values, nan=0.0)
-    port_te = np.nan_to_num(te_sub[port_cols].apply(pd.to_numeric, errors="coerce").values, nan=0.0)
+    port_tr = np.nan_to_num(tr_sub[port_cols].apply(pd.to_numeric, errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0)
+    port_te = np.nan_to_num(te_sub[port_cols].apply(pd.to_numeric, errors="coerce").values, nan=0.0, posinf=0.0, neginf=0.0)
     X_port_tr = np.column_stack([X_clean_tr, port_tr])
     X_port_te = np.column_stack([X_clean_te, port_te])
     s_port = RobustScaler().fit(X_port_tr)
 
     xgb_port = XGBClassifier(n_estimators=100, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=4)
-    xgb_port.fit(s_port.transform(X_port_tr), y_tr_sub)
-    p_port = xgb_port.predict_proba(s_port.transform(X_port_te))[:, 1]
+    xgb_port.fit(_sanitize_matrix(s_port.transform(X_port_tr)), y_tr_sub)
+    p_port = xgb_port.predict_proba(_sanitize_matrix(s_port.transform(X_port_te)))[:, 1]
     auroc_port_6 = float(roc_auc_score(y_te_sub, p_port))
 
     # Feature importances
@@ -1149,8 +1149,8 @@ def main() -> None:
 
     scaler_dom_a = RobustScaler().fit(X_dom_a[:split_dom])
     dom_a_model = XGBClassifier(n_estimators=100, max_depth=5, learning_rate=0.05, random_state=42, n_jobs=4)
-    dom_a_model.fit(scaler_dom_a.transform(X_dom_a[:split_dom]), y_dom_a[:split_dom])
-    p_dom_a = dom_a_model.predict_proba(scaler_dom_a.transform(X_dom_a[split_dom:]))[:, 1]
+    dom_a_model.fit(_sanitize_matrix(scaler_dom_a.transform(X_dom_a[:split_dom])), y_dom_a[:split_dom])
+    p_dom_a = dom_a_model.predict_proba(_sanitize_matrix(scaler_dom_a.transform(X_dom_a[split_dom:])))[:, 1]
     dom_a_auroc = float(roc_auc_score(y_dom_a[split_dom:], p_dom_a))
 
     gains_a = dom_a_model.get_booster().get_score(importance_type="gain")
@@ -1171,16 +1171,16 @@ def main() -> None:
     keep_top_drop = [i for i in range(5) if i != top1_idx]
     s_drop_top = RobustScaler().fit(data_tier_a["X_c_tr"][:, keep_top_drop])
     xgb_drop_top = XGBClassifier(n_estimators=100, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=4)
-    xgb_drop_top.fit(s_drop_top.transform(data_tier_a["X_c_tr"][:, keep_top_drop]), data_tier_a["y_c_tr"])
-    p_drop_top = xgb_drop_top.predict_proba(s_drop_top.transform(data_tier_a["X_u_te"][:, keep_top_drop]))[:, 1]
+    xgb_drop_top.fit(_sanitize_matrix(s_drop_top.transform(data_tier_a["X_c_tr"][:, keep_top_drop])), data_tier_a["y_c_tr"])
+    p_drop_top = xgb_drop_top.predict_proba(_sanitize_matrix(s_drop_top.transform(data_tier_a["X_u_te"][:, keep_top_drop])))[:, 1]
     auroc_drop_top = float(roc_auc_score(data_tier_a["y_u_te"], p_drop_top))
 
     # Evaluate dropping random feature
     keep_rand_drop = [i for i in range(5) if i != random_idx]
     s_drop_rand = RobustScaler().fit(data_tier_a["X_c_tr"][:, keep_rand_drop])
     xgb_drop_rand = XGBClassifier(n_estimators=100, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=4)
-    xgb_drop_rand.fit(s_drop_rand.transform(data_tier_a["X_c_tr"][:, keep_rand_drop]), data_tier_a["y_c_tr"])
-    p_drop_rand = xgb_drop_rand.predict_proba(s_drop_rand.transform(data_tier_a["X_u_te"][:, keep_rand_drop]))[:, 1]
+    xgb_drop_rand.fit(_sanitize_matrix(s_drop_rand.transform(data_tier_a["X_c_tr"][:, keep_rand_drop])), data_tier_a["y_c_tr"])
+    p_drop_rand = xgb_drop_rand.predict_proba(_sanitize_matrix(s_drop_rand.transform(data_tier_a["X_u_te"][:, keep_rand_drop])))[:, 1]
     auroc_drop_rand = float(roc_auc_score(data_tier_a["y_u_te"], p_drop_rand))
 
     baseline_a_auroc = res_c2u_a["XGBoost"]["auroc"]
@@ -1206,12 +1206,12 @@ def main() -> None:
 
     s_ldo = RobustScaler().fit(X_ldo_tr)
     xgb_ldo = XGBClassifier(n_estimators=100, max_depth=6, learning_rate=0.05, random_state=42, n_jobs=4)
-    xgb_ldo.fit(s_ldo.transform(X_ldo_tr), y_ldo_tr)
-    p_ldo_te = xgb_ldo.predict_proba(s_ldo.transform(X_ldo_te))[:, 1]
+    xgb_ldo.fit(_sanitize_matrix(s_ldo.transform(X_ldo_tr)), y_ldo_tr)
+    p_ldo_te = xgb_ldo.predict_proba(_sanitize_matrix(s_ldo.transform(X_ldo_te)))[:, 1]
     auroc_ldo = float(roc_auc_score(y_ldo_te, p_ldo_te))
 
     # Evaluate per-class recall on unseen novel attack classes at source val threshold
-    th_ldo, _ = find_threshold_by_mcc(y_ldo_tr[:20_000], xgb_ldo.predict_proba(s_ldo.transform(X_ldo_tr[:20_000]))[:, 1])
+    th_ldo, _ = find_threshold_by_mcc(y_ldo_tr[:20_000], xgb_ldo.predict_proba(_sanitize_matrix(s_ldo.transform(X_ldo_tr[:20_000])))[:, 1])
     pred_ldo = (p_ldo_te >= th_ldo).astype(int)
 
     unseen_attacks = split_info["leave_day_out"]["unseen_attacks"]
