@@ -288,3 +288,68 @@ def full_evaluation_report(model, X_test: np.ndarray, y_test: np.ndarray,
             pass
 
     return report
+
+
+def compute_vectorized_mcc_roc(
+    y_true: np.ndarray, y_proba: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute vectorized FPR, TPR, thresholds, and MCC across all unique score thresholds.
+
+    Args:
+        y_true: Binary ground-truth labels (0 or 1).
+        y_proba: Predicted probabilities for positive class (1).
+
+    Returns:
+        (fpr, tpr, thresholds, mcc_vec)
+    """
+    fpr, tpr, thresholds = roc_curve(y_true, y_proba)
+    P = float(np.sum(y_true == 1))
+    N = float(np.sum(y_true == 0))
+    if P == 0 or N == 0:
+        mcc_vec = np.zeros_like(thresholds)
+        return fpr, tpr, thresholds, mcc_vec
+
+    TP = tpr * P
+    FP = fpr * N
+    FN = P - TP
+    TN = N - FP
+
+    num = (TP * TN) - (FP * FN)
+    den = np.sqrt((TP + FP) * P * N * (TN + FN))
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        mcc_vec = np.where(den > 0, num / den, 0.0)
+
+    return fpr, tpr, thresholds, mcc_vec
+
+
+def find_oracle_mcc(
+    y_true: np.ndarray, y_proba: np.ndarray, source_th: Optional[float] = None
+) -> tuple[float, float, float, float]:
+    """
+    Find exact oracle threshold and MCC maximizing MCC across all unique score thresholds.
+    Optionally evaluates source_th to strictly ensure oracle_mcc >= mcc(source_th).
+
+    Returns:
+        (best_th, best_mcc, best_tpr, best_fpr)
+    """
+    fpr, tpr, thresholds, mcc_vec = compute_vectorized_mcc_roc(y_true, y_proba)
+    best_idx = int(np.argmax(mcc_vec))
+    best_th = float(thresholds[best_idx])
+    best_mcc = float(mcc_vec[best_idx])
+    best_tpr = float(tpr[best_idx])
+    best_fpr = float(fpr[best_idx])
+
+    if source_th is not None:
+        pred_src = (y_proba >= source_th).astype(int)
+        mcc_src = float(matthews_corrcoef(y_true, pred_src))
+        if mcc_src > best_mcc:
+            best_mcc = mcc_src
+            best_th = source_th
+            tn, fp, fn, tp = confusion_matrix(y_true, pred_src, labels=[0, 1]).ravel()
+            best_tpr = float(tp / (tp + fn)) if (tp + fn) > 0 else 0.0
+            best_fpr = float(fp / (fp + tn)) if (fp + tn) > 0 else 0.0
+
+    return best_th, best_mcc, best_tpr, best_fpr
+
