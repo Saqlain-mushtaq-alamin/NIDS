@@ -22,6 +22,9 @@ cic-ids-2017:
   "FTP-Patator": BruteForce
   "SSH-Patator": BruteForce
   Bot: Botnet
+  "Web Attack – Brute Force": WebAttack
+  "Web Attack – XSS": WebAttack
+  "Web Attack – Sql Injection": WebAttack
   "Web Attack  Brute Force": WebAttack
   "Web Attack  XSS": WebAttack
   "Web Attack  Sql Injection": WebAttack
@@ -31,14 +34,15 @@ cic-ids-2017:
 unsw-nb15:
   Normal: Benign
   DoS: DoS
-  Exploits: WebAttack
-  Fuzzers: Other
-  Generic: Other
   Reconnaissance: PortScan
-  Analysis: PortScan
-  Backdoors: Botnet
-  Shellcode: Botnet
-  Worms: Botnet
+  Generic: Other
+  Exploits: Other
+  Fuzzers: Other
+  Analysis: Other
+  Backdoor: Other
+  Backdoors: Other
+  Shellcode: Other
+  Worms: Other
 
 lab-simulated:
   Benign: Benign

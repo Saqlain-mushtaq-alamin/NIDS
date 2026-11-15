@@ -7,7 +7,7 @@ datasets:
     download_date: "2026-09-01"
     local_dir: "data/raw/cic-ids-2017"
     file_pattern: "*.csv"
-    label_column: " Label"  # Raw column contains leading space
+    label_column: "Label"
     documented_noise_rate: 0.0667
     notes: "Raw baseline dataset. Standard UNB benchmark."
 
