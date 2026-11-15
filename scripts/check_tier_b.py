@@ -91,3 +91,4 @@ close2 = np.isclose(r2, rate_actual, rtol=1e-3, atol=1e-2).mean()
 print(f"UNSW rows with dur > 0: {len(unsw_nz_dur):,}")
 print(f"Formula 1: (spkts + dpkts) / dur     -> Mean Abs Err: {err1.mean():.4f}, Max Err: {err1.max():.4f}, Close: {close1:.2%}")
 print(f"Formula 2: (spkts + dpkts - 1) / dur -> Mean Abs Err: {err2.mean():.4f}, Max Err: {err2.max():.4f}, Close: {close2:.2%}")
+
