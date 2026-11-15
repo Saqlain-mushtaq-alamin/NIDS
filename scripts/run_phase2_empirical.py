@@ -1284,8 +1284,8 @@ def main() -> None:
             "mcc_oracle": float(res_c2u_a["XGBoost"]["mcc_oracle"]),
         },
         "item2_cic_dedup_split": {
-            "rows_before_dedup": n_before_dedup,
-            "rows_after_76_feat_dedup": n_after_dedup,
+            "rows_before_dedup": split_info["n_before_dedup"],
+            "rows_after_76_feat_dedup": split_info["n_after_dedup"],
             "train_rows": len(cic_tr_df),
             "test_rows": len(cic_te_df),
             "straddling_rows_removed": split_info["straddling_rows_removed"],
