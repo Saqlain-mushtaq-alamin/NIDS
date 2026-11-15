@@ -69,3 +69,4 @@ def test_oracle_mcc_all_printed_roc_points():
         pred = (y_proba >= thresholds[idx]).astype(int)
         mcc_pt = matthews_corrcoef(y_true, pred)
         assert best_mcc >= mcc_pt - 1e-6
+
