@@ -32,8 +32,16 @@ METADATA_COLUMN_PATTERNS = [
     "source ip", "destination ip", "timestamp", "source port", "destination port",
     "flow id", "src_ip", "dst_ip", "srcip", "dstip", "sport", "dsport", "dport",
     "stime", "ltime", "time", "date", "ipv4_src_addr", "ipv4_dst_addr",
-    "l4_src_port", "l4_dst_port", "id",
+    "l4_src_port", "l4_dst_port", "id", "protocol", "proto", "service", "state",
 ]
+
+LEAKAGE_DENYLIST_EXACT = {
+    "label", "label_raw", "attack_cat", "attack", "protocol", "proto",
+    "service", "state", "id", "flow id", "flow_id", "timestamp", "stime",
+    "ltime", "source ip", "destination ip", "source port", "destination port",
+    "srcip", "dstip", "sport", "dsport", "dport", "l4_src_port", "l4_dst_port",
+    "ipv4_src_addr", "ipv4_dst_addr",
+}
 
 
 def _load_taxonomy() -> set:
@@ -197,6 +205,7 @@ def _load_cic_ids_2017(data_dir: Path) -> pd.DataFrame:
     total_raw_rows = 0
     total_blank_dropped = 0
     file_ts_ranges = {}
+    file_ts_stats = {}
 
     print(f"\nLoading CIC-IDS2017 from {len(csv_files)} files...")
     for f in csv_files:
@@ -222,15 +231,42 @@ def _load_cic_ids_2017(data_dir: Path) -> pd.DataFrame:
         # Store raw label in label_raw
         df["label_raw"] = df[label_col].astype(str).str.strip()
 
-        # Parse Timestamp if present
+        # Parse Timestamp if present and sort stably with tie-break
         ts_col = next((c for c in df.columns if "timestamp" in c.lower()), None)
         if ts_col:
             parsed_ts = _parse_cic_timestamp(df[ts_col])
             df[ts_col] = parsed_ts
             ts_min = parsed_ts.min()
             ts_max = parsed_ts.max()
+            n_rows = len(df)
+
+            # Local inversions (diff < 0)
+            local_inv = int((parsed_ts.diff() < pd.Timedelta(0)).sum())
+            frac_local = local_inv / n_rows if n_rows > 0 else 0.0
+
+            # Cumulative out-of-order (ts < cummax)
+            cummax = parsed_ts.cummax()
+            cum_ooo = int((parsed_ts < cummax).sum())
+            frac_cum_ooo = cum_ooo / n_rows if n_rows > 0 else 0.0
+
+            # Tied timestamps
+            tied_rows = int(parsed_ts.duplicated(keep=False).sum())
+            frac_tied = tied_rows / n_rows if n_rows > 0 else 0.0
+
+            # Sort stably by timestamp with original row order as tie-break
+            df["_orig_row"] = np.arange(n_rows)
+            df = df.sort_values(by=[ts_col, "_orig_row"], kind="mergesort").reset_index(drop=True)
+            df.drop(columns=["_orig_row"], inplace=True)
+
+            file_ts_stats[f.name] = {
+                "min": ts_min, "max": ts_max,
+                "local_inv": local_inv, "frac_local": frac_local,
+                "cum_ooo": cum_ooo, "frac_cum_ooo": frac_cum_ooo,
+                "tied_rows": tied_rows, "frac_tied": frac_tied,
+            }
             file_ts_ranges[f.name] = (ts_min, ts_max)
-            print(f"  - {f.name}: raw={raw_count:,}, dropped_blanks={blank_count:,}, clean={len(df):,}, ts=[{ts_min} to {ts_max}]")
+            print(f"  - {f.name}: clean={n_rows:,}, ts=[{ts_min} to {ts_max}], "
+                  f"out-of-order={cum_ooo:,} ({frac_cum_ooo:.2%}), tied={tied_rows:,} ({frac_tied:.2%})")
         else:
             print(f"  - {f.name}: raw={raw_count:,}, dropped_blanks={blank_count:,}, clean={len(df):,}")
 
@@ -247,12 +283,16 @@ def _load_cic_ids_2017(data_dir: Path) -> pd.DataFrame:
     merged = merged.loc[:, ~merged.columns.duplicated(keep="first")]
 
     clean_total = len(merged)
+    ref_count = len(merged.drop_duplicates())
     print(f"\nCIC-IDS2017 Cleaning Summary:")
-    print(f"  Total raw lines:          {total_raw_rows:,}")
-    print(f"  Total blank rows dropped: {total_blank_dropped:,}")
-    print(f"  Total clean rows:         {clean_total:,} (Expected: 2,830,743)")
+    print(f"  Total raw lines:                  {total_raw_rows:,}")
+    print(f"  Total blank rows dropped:         {total_blank_dropped:,}")
+    print(f"  Total clean rows:                 {clean_total:,} (Expected: 2,830,743)")
+    print(f"  Metadata-inclusive dedup ref:     {ref_count:,}")
 
     merged.attrs["file_ts_ranges"] = file_ts_ranges
+    merged.attrs["timestamp_stats"] = file_ts_stats
+    merged.attrs["raw_reference_count"] = ref_count
     return merged
 
 
@@ -305,6 +345,7 @@ def _load_unsw_nb15(data_dir: Path) -> tuple[pd.DataFrame, str]:
         if raw_lbl_col:
             merged["label_raw"] = merged[raw_lbl_col].astype(str).str.strip()
 
+        merged.attrs["raw_reference_count"] = raw_total
         return merged, "partitioned"
 
     # Otherwise load raw 4 CSVs
