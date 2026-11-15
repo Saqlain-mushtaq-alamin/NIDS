@@ -970,7 +970,7 @@ def run_multiclass_secondary(
         pred_c2u = xgb_c2u.predict(scaler.transform(data["X_unsw_te"][mask_u_te]))
         macro_f1_c2u = float(f1_score(y_u_te_enc, pred_c2u, average="macro", zero_division=0))
         rec_c2u = recall_score(y_u_te_enc, pred_c2u, average=None, zero_division=0)
-        per_class_rec_c2u = {cls: float(rec_c2u[idx]) for idx, cls in enumerate(le.classes_)}
+        per_class_rec_c2u = {str(cls): float(rec_c2u[idx]) for idx, cls in enumerate(le.classes_)}
 
         # In-domain CIC -> CIC
         pred_c2c = xgb_c2u.predict(X_c_te_s)
