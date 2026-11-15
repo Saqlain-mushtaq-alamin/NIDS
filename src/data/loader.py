@@ -64,26 +64,38 @@ def _load_dataset_config(dataset_name: str) -> dict:
 
 def _find_csv_files(local_dir: Path, file_pattern: str = "*.csv",
                     subfolder: Optional[str] = None) -> list[Path]:
-    """Find all CSV files matching the pattern in local_dir or subfolders."""
+    """Find all CSV files matching the pattern in local_dir or subfolders (deduplicating paths)."""
     if not local_dir.exists():
         raise FileNotFoundError(f"Data directory not found: {local_dir}")
+
+    seen = set()
+    unique_files = []
+
+    def _add_if_new(p: Path):
+        key = str(p.resolve()).lower()
+        if key not in seen and p.is_file():
+            seen.add(key)
+            unique_files.append(p.resolve())
 
     # If subfolder (e.g. TrafficLabelling) exists, prioritize files inside it
     if subfolder:
         target_sub = local_dir / subfolder
         if target_sub.is_dir():
-            csv_files = sorted(target_sub.glob(file_pattern))
-            if csv_files:
-                return csv_files
+            for p in sorted(target_sub.glob(file_pattern)):
+                _add_if_new(p)
+            for p in sorted(target_sub.glob(f"**/{file_pattern}")):
+                _add_if_new(p)
+            if unique_files:
+                return sorted(unique_files)
 
-    # Try local directory
-    csv_files = sorted(local_dir.glob(file_pattern))
-    if not csv_files:
-        # Try recursive search
-        csv_files = sorted(local_dir.glob(f"**/{file_pattern}"))
-    if not csv_files:
+    for p in sorted(local_dir.glob(file_pattern)):
+        _add_if_new(p)
+    for p in sorted(local_dir.glob(f"**/{file_pattern}")):
+        _add_if_new(p)
+
+    if not unique_files:
         raise FileNotFoundError(f"No CSV files found in {local_dir} matching {file_pattern}")
-    return csv_files
+    return sorted(unique_files)
 
 
 def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -95,7 +107,7 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
 def _extract_and_isolate_metadata(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Identify and extract identity/metadata columns (IPs, ports, timestamps, flow IDs)
-    into a separate metadata DataFrame.
+    into a separate metadata DataFrame, ensuring they are removed from the feature matrix.
     """
     col_lower_map = {c.lower().strip(): c for c in df.columns}
     metadata_cols = []
@@ -105,7 +117,7 @@ def _extract_and_isolate_metadata(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Da
 
     # Also detect any IP-like string columns
     for col in df.columns:
-        if col in metadata_cols or col.lower() in ("label", "attack", "attack_cat"):
+        if col in metadata_cols or col.lower() in ("label", "attack", "attack_cat", "label_raw"):
             continue
         if df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
             sample = df[col].dropna().head(10)
@@ -114,6 +126,7 @@ def _extract_and_isolate_metadata(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Da
 
     metadata_cols = list(dict.fromkeys(metadata_cols))
     metadata_df = df[metadata_cols].copy() if metadata_cols else pd.DataFrame(index=df.index)
+    df = df.drop(columns=metadata_cols, errors="ignore")
     return df, metadata_df
 
 
@@ -138,6 +151,34 @@ def _read_csv_with_fallback(file_path: Path) -> pd.DataFrame:
     if last_err is not None:
         raise last_err
     raise RuntimeError(f"Could not read {file_path}")
+
+
+def _parse_cic_timestamp(ts_series: pd.Series) -> pd.Series:
+    """
+    Parse CIC-IDS2017 timestamps where 12-hour times have no AM/PM.
+    Hours 1-7 are afternoon (+12 hours).
+    """
+    def convert_val(val):
+        if pd.isna(val):
+            return pd.NaT
+        s = str(val).strip()
+        parts = s.split(" ")
+        if len(parts) != 2:
+            return pd.to_datetime(s, dayfirst=True, errors="coerce")
+        date_part, time_part = parts[0], parts[1]
+        time_tokens = time_part.split(":")
+        try:
+            h = int(time_tokens[0])
+            m = int(time_tokens[1])
+            sec = int(time_tokens[2]) if len(time_tokens) > 2 else 0
+            if 1 <= h <= 7:
+                h += 12
+            return f"{date_part} {h:02d}:{m:02d}:{sec:02d}"
+        except Exception:
+            return s
+
+    converted = ts_series.map(convert_val)
+    return pd.to_datetime(converted, dayfirst=True, errors="coerce")
 
 
 def _load_cic_ids_2017(data_dir: Path) -> pd.DataFrame:
