@@ -18,10 +18,66 @@
 #   ratio          numerator / denominator (safe divide, zero when undefined)
 #   reciprocal     denominator / numerator (safe divide, zero when undefined)
 
-schema_version: "1.0"
+schema_version: "2.0"
 
 # ---------------------------------------------------------------------------
-# Domain-invariant behavior schema — 16 dimensions
+# Primary Shared-Feature Intersection (10 Dimensions)
+# Strictly harmonized, semantically equivalent features between CIC and UNSW
+# ---------------------------------------------------------------------------
+shared_primary:
+  - flow_duration
+  - total_fwd_packets
+  - total_bwd_packets
+  - total_length_of_fwd_packets
+  - total_length_of_bwd_packets
+  - fwd_packet_length_mean
+  - bwd_packet_length_mean
+  - flow_packets_per_sec
+  - fwd_iat_mean
+  - bwd_iat_mean
+
+# ---------------------------------------------------------------------------
+# Uncertain candidate pairs (EXCLUDED from primary set per scientific design)
+# ---------------------------------------------------------------------------
+uncertain_pairs:
+  - name: flow_bytes_per_sec
+    cic_feature: "Flow Bytes/s"
+    unsw_feature: "sload + dload"
+    cic_unit: "bytes/s"
+    unsw_unit: "bits/s"
+    status: uncertain
+    reason: "UNSW measures sload/dload in bits/s per direction; zero-duration clipping causes large scale discrepancy with CIC Flow Bytes/s."
+  - name: tcp_window_advertisement
+    cic_feature: "Init_Win_bytes_forward"
+    unsw_feature: "swin"
+    cic_unit: "bytes"
+    unsw_unit: "raw window field"
+    status: uncertain
+    reason: "CIC Init_Win_bytes_forward records window byte size; UNSW swin records window field without TCP window scale option."
+  - name: flow_iat_std_jitter
+    cic_feature: "Flow IAT Std"
+    unsw_feature: "sjit / djit"
+    cic_unit: "us"
+    unsw_unit: "ms"
+    status: uncertain
+    reason: "CIC Flow IAT Std measures empirical standard deviation; UNSW sjit/djit measures RFC 3550 jitter via exponential smoothing."
+  - name: down_up_ratio
+    cic_feature: "Down/Up Ratio"
+    unsw_feature: "dbytes / sbytes"
+    cic_unit: "ratio"
+    unsw_unit: "ratio"
+    status: uncertain
+    reason: "CIC Down/Up Ratio is discrete integer packet ratio; UNSW requires synthetic continuous byte ratio."
+  - name: tcp_rtt
+    cic_feature: "Active Mean"
+    unsw_feature: "tcprtt"
+    cic_unit: "us"
+    unsw_unit: "ms"
+    status: uncertain
+    reason: "CIC Active Mean measures active flow duration; UNSW tcprtt measures TCP 3-way handshake round trip time."
+
+# ---------------------------------------------------------------------------
+# Legacy Behavior Schemas (Preserved for compatibility)
 # ---------------------------------------------------------------------------
 behavior_core:
   - flow_duration
