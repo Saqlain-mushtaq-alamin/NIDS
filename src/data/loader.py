@@ -32,7 +32,7 @@ METADATA_COLUMN_PATTERNS = [
     "source ip", "destination ip", "timestamp", "source port", "destination port",
     "flow id", "src_ip", "dst_ip", "srcip", "dstip", "sport", "dsport", "dport",
     "stime", "ltime", "time", "date", "ipv4_src_addr", "ipv4_dst_addr",
-    "l4_src_port", "l4_dst_port",
+    "l4_src_port", "l4_dst_port", "id",
 ]
 
 
