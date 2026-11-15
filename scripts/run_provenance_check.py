@@ -165,6 +165,8 @@ def main():
     res_cic = audit_directory("cic-ids-2017", cic_dir)
     res_unsw = audit_directory("unsw-nb15", unsw_dir)
 
+    print_shared_feature_table()
+
     print("\n=======================================================")
     print("PROVENANCE AUDIT SUMMARY")
     print("=======================================================")
