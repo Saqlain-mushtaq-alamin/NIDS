@@ -434,23 +434,27 @@ def _apply_label_mapping(df: pd.DataFrame, dataset_name: str,
 
 
 def _drop_non_features(df: pd.DataFrame, dataset_name: str) -> pd.DataFrame:
-    """Drop known non-feature columns (IP addresses, ports, protocols, timestamps)."""
+    """Drop known non-feature columns (IP addresses, ports, protocols, timestamps, states, services, IDs)."""
     drop_cols = []
-    col_lower = {c.lower(): c for c in df.columns}
-
-    for pattern in METADATA_COLUMN_PATTERNS + ["protocol", "proto", "id"]:
-        if pattern in col_lower:
-            drop_cols.append(col_lower[pattern])
-
     for col in df.columns:
-        if col in drop_cols or col.lower() in ("label", "attack", "label_raw"):
+        if col in ("label", "label_raw"):
             continue
+        c_low = col.strip().lower()
+        # Drop exact denylist matches
+        if c_low in LEAKAGE_DENYLIST_EXACT or c_low in ("attack_cat", "attack", "id", "protocol", "proto", "service", "state"):
+            drop_cols.append(col)
+            continue
+        # Drop raw label column named 'Label' (since unified 'label' and 'label_raw' exist)
+        if c_low == "label":
+            drop_cols.append(col)
+            continue
+        # Drop IP-like string columns
         if df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
             sample = df[col].dropna().head(10)
             if len(sample) > 0 and sample.astype(str).str.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$").all():
                 drop_cols.append(col)
 
-    drop_cols = list(set(drop_cols))
+    drop_cols = list(dict.fromkeys(drop_cols))
     df.drop(columns=[c for c in drop_cols if c in df.columns], inplace=True, errors="ignore")
     return df
 
