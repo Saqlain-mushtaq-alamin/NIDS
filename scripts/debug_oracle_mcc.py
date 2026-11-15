@@ -85,3 +85,4 @@ for i, idx in enumerate(indices):
     pred_i = (p_te >= th).astype(int)
     m_i = matthews_corrcoef(y_u_te, pred_i)
     print(f"{i+1:<6} | {th:12.4f} | {fpr[idx]:10.4f} | {tpr[idx]:10.4f} | {m_i:10.4f}")
+
