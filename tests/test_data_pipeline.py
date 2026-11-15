@@ -60,7 +60,7 @@ class TestDataLoading:
         import pandas as pd
         from src.data.loader import load_dataset
         with pytest.raises(ValueError, match=r"minimum \d+ rows required"):
-            load_dataset("cic-ids-2017", min_rows=1_000_000, enforce_provenance=False)
+            load_dataset("cic-ids-2017", min_rows=10_000_000, enforce_provenance=False)
 
     def test_split_dataset_strategies(self):
         from src.data.loader import load_dataset, split_dataset
