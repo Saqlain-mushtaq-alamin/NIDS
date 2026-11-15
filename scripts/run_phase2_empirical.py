@@ -1291,6 +1291,7 @@ def main() -> None:
     print("=" * 80)
 
     # Compile Final JSON Report with Provenance Stamp
+    cic_dir = _PROJECT_ROOT / "data" / "raw" / "cic-ids-2017"
     source_files_dict = {}
     for f in _find_csv_files(cic_dir, "*.csv", subfolder="TrafficLabelling"):
         rel_p = str(f.relative_to(_PROJECT_ROOT)).replace("\\", "/")
