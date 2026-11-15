@@ -622,22 +622,14 @@ def load_dataset(dataset_name: str, drop_non_features: bool = True,
 
     df.attrs["variant"] = variant
 
-    # 1. Deduplicate rows
-    n_before_dedup = len(df)
-    df = df.drop_duplicates()
-    n_after_dedup = len(df)
-    if n_after_dedup < n_before_dedup:
-        logger.info("Dataset '%s': dropped %d duplicate rows (%d -> %d)",
-                    dataset_name, n_before_dedup - n_after_dedup, n_before_dedup, n_after_dedup)
-
-    # 2. Extract and preserve metadata in df.attrs['metadata']
+    # 1. Extract and preserve metadata in df.attrs['metadata']
     df, metadata_df = _extract_and_isolate_metadata(df)
     df.attrs["metadata"] = metadata_df
 
-    # 3. Handle inf / NaN
+    # 2. Handle inf / NaN
     df = _clean_infinities_and_nans(df)
 
-    # 4. Apply label mapping
+    # 3. Apply label mapping
     mappings = _load_label_mappings(normalized_name) or _load_label_mappings(dataset_name)
     if "label_raw" in df.columns and mappings:
         stripped = df["label_raw"].astype(str).str.strip()
@@ -654,17 +646,67 @@ def load_dataset(dataset_name: str, drop_non_features: bool = True,
                 df = _apply_label_mapping(df, normalized_name, col, mappings)
                 break
 
-    # 5. Drop non-feature columns from the feature matrix
+    # 4. Drop non-feature columns from the feature matrix
     if drop_non_features:
         df = _drop_non_features(df, normalized_name)
 
-    # 6. Log label counts
+    # 5. A1 Deduplication: apply SAME rule to both datasets:
+    # Drop duplicates on the model feature columns + label_raw (metadata/IDs excluded).
+    model_feature_cols = [c for c in df.columns if c not in ("label", "label_raw")]
+    dedup_subset = model_feature_cols + (["label_raw"] if "label_raw" in df.columns else ["label"])
+
+    raw_reference = df.attrs.get("raw_reference_count", len(df))
+    target_label_col = "label_raw" if "label_raw" in df.columns else "label"
+    before_counts = df[target_label_col].value_counts().to_dict()
+    n_before_dedup = len(df)
+
+    df_dedup = df.drop_duplicates(subset=dedup_subset)
+    n_after_dedup = len(df_dedup)
+
+    if metadata_df is not None:
+        df.attrs["metadata"] = metadata_df.loc[df_dedup.index].reset_index(drop=True)
+
+    df = df_dedup.reset_index(drop=True)
+    after_counts = df[target_label_col].value_counts().to_dict()
+
+    print(f"\n=======================================================")
+    print(f"DEDUPLICATION REPORT (Feature-only rule): {dataset_name}")
+    print(f"=======================================================")
+    print(f"  Rows before deduplication:            {n_before_dedup:,}")
+    print(f"  Rows after feature-only dedup:         {n_after_dedup:,} (dropped {n_before_dedup - n_after_dedup:,})")
+    print(f"  Metadata-inclusive reference count:   {raw_reference:,}")
+    print(f"  Per-class breakdown ({target_label_col}):")
+    for lbl, b_cnt in before_counts.items():
+        a_cnt = after_counts.get(lbl, 0)
+        print(f"    {str(lbl):<30}: {b_cnt:>9,} -> {a_cnt:>9,} (dropped {b_cnt - a_cnt:>8,})")
+
+    # 6. A2 Leakage guard: assert none of the denylisted columns exist in final model features
+    final_model_features = [c for c in df.columns if c not in ("label", "label_raw")]
+    leakage_detected = []
+    for feat in final_model_features:
+        f_low = feat.strip().lower()
+        if f_low in LEAKAGE_DENYLIST_EXACT:
+            leakage_detected.append(feat)
+        elif any(f_low == d for d in ["ip", "port", "timestamp", "flow id", "id", "protocol", "proto", "service", "state", "attack_cat"]):
+            leakage_detected.append(feat)
+        elif f_low in ("srcip", "dstip", "sport", "dsport", "stime", "ltime"):
+            leakage_detected.append(feat)
+
+    if leakage_detected:
+        raise ValueError(
+            f"Data leakage guard violated in dataset '{dataset_name}': "
+            f"forbidden columns found in model feature set: {leakage_detected}"
+        )
+    print(f"\nFinal model-input feature list for '{dataset_name}' ({len(final_model_features)} features):")
+    print(f"  {final_model_features[:10]} ...")
+
+    # 7. Log unified label counts
     if "label" in df.columns:
         counts = df["label"].value_counts().to_dict()
-        logger.info("Dataset '%s' label counts (%d total):\n%s",
+        logger.info("Dataset '%s' unified label counts (%d total):\n%s",
                     dataset_name, len(df), counts)
 
-    # 7. Fail if dataset has fewer than min_rows
+    # 8. Fail if dataset has fewer than min_rows
     if len(df) < min_rows:
         raise ValueError(
             f"Dataset '{dataset_name}' has only {len(df)} rows; "
