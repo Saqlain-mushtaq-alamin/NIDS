@@ -120,7 +120,12 @@ def block_bootstrap_cis(
     y_true: np.ndarray, y_proba: np.ndarray, block_ids: np.ndarray,
     threshold: float, n_resamples: int = 200, seed: int = 42
 ) -> Dict[str, Tuple[float, float]]:
-    """Time-block (or group) bootstrap resampling."""
+    """Time-block (or group) bootstrap resampling with subsample guard for large N."""
+    if len(y_true) > 100_000:
+        rng_sub = np.random.default_rng(seed)
+        sub_idx = rng_sub.choice(len(y_true), size=100_000, replace=False)
+        return block_bootstrap_cis(y_true[sub_idx], y_proba[sub_idx], block_ids[sub_idx], threshold, n_resamples=n_resamples, seed=seed)
+
     rng = np.random.default_rng(seed)
     unique_blocks = np.unique(block_ids)
     n_blocks = len(unique_blocks)
@@ -157,7 +162,12 @@ def row_bootstrap_cis(
     y_true: np.ndarray, y_proba: np.ndarray,
     threshold: float, n_resamples: int = 200, seed: int = 42
 ) -> Dict[str, Tuple[float, float]]:
-    """Standard row-level bootstrap for comparison."""
+    """Standard row-level bootstrap for comparison with subsample guard for large N."""
+    if len(y_true) > 100_000:
+        rng_sub = np.random.default_rng(seed)
+        sub_idx = rng_sub.choice(len(y_true), size=100_000, replace=False)
+        return row_bootstrap_cis(y_true[sub_idx], y_proba[sub_idx], threshold, n_resamples=n_resamples, seed=seed)
+
     rng = np.random.default_rng(seed)
     n = len(y_true)
     indices = np.arange(n)
