@@ -7,11 +7,11 @@ import pandas as pd
 from src.data.loader import load_dataset
 
 print("Loading CIC-IDS2017...")
-cic_df = load_dataset("cic-ids-2017", drop_non_features=False, enforce_provenance=True)
+cic_df = load_dataset("cic-ids-2017", drop_non_features=True, enforce_provenance=True)
 print(f"CIC shape: {cic_df.shape}")
 
 print("Loading UNSW-NB15...")
-unsw_df = load_dataset("unsw-nb15", drop_non_features=False, enforce_provenance=True)
+unsw_df = load_dataset("unsw-nb15", drop_non_features=True, enforce_provenance=True)
 print(f"UNSW shape: {unsw_df.shape}")
 
 # Filter to benign rows
