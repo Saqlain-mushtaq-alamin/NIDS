@@ -683,6 +683,10 @@ def audit_unsw_partitioning() -> Dict[str, Any]:
     }
 
 
+def _sanitize_matrix(arr: np.ndarray) -> np.ndarray:
+    return np.nan_to_num(arr, nan=0.0, posinf=1e6, neginf=-1e6).clip(-1e6, 1e6)
+
+
 # =====================================================================
 # DATA MATRICES PREPARATION (WITH RECOMPUTED RATE)
 # =====================================================================
@@ -807,15 +811,15 @@ def evaluate_cell_models(
 
     if scaler_type == "source":
         scaler = RobustScaler().fit(X_tr[fit_idx])
-        X_fit_s = scaler.transform(X_tr[fit_idx])
-        X_val_s = scaler.transform(X_tr[val_idx])
-        X_te_s = scaler.transform(X_te)
+        X_fit_s = _sanitize_matrix(scaler.transform(X_tr[fit_idx]))
+        X_val_s = _sanitize_matrix(scaler.transform(X_tr[val_idx]))
+        X_te_s = _sanitize_matrix(scaler.transform(X_te))
     else:
         s_src = RobustScaler().fit(X_tr[fit_idx])
         s_tgt = RobustScaler().fit(X_te)
-        X_fit_s = s_src.transform(X_tr[fit_idx])
-        X_val_s = s_src.transform(X_tr[val_idx])
-        X_te_s = s_tgt.transform(X_te)
+        X_fit_s = _sanitize_matrix(s_src.transform(X_tr[fit_idx]))
+        X_val_s = _sanitize_matrix(s_src.transform(X_tr[val_idx]))
+        X_te_s = _sanitize_matrix(s_tgt.transform(X_te))
 
     models = {
         "XGBoost": XGBClassifier(n_estimators=100, max_depth=6, learning_rate=0.05, random_state=seed, n_jobs=4),
