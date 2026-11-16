@@ -194,33 +194,41 @@ def test_shared_feature_harmonization_magnitudes():
 
 def test_unsw_label_alignment_integrity():
     """Verify that UNSW deduplication maintains 1:1 row alignment between features and labels."""
-    unsw_test_path = Path("data/raw/unsw-nb15/UNSW_NB15_testing-set.csv")
-    if not unsw_test_path.exists():
+    unsw_tr_path = Path("data/raw/unsw-nb15/UNSW_NB15_training-set.csv")
+    unsw_te_path = Path("data/raw/unsw-nb15/UNSW_NB15_testing-set.csv")
+    if not (unsw_tr_path.exists() and unsw_te_path.exists()):
         pytest.skip("UNSW raw data not present")
 
-    df_raw = pd.read_csv(unsw_test_path)
-    df = df_raw.copy()
-    df["orig_idx"] = np.arange(len(df))
+    df_tr_raw = pd.read_csv(unsw_tr_path)
+    df_te_raw = pd.read_csv(unsw_te_path)
+    df_tr = df_tr_raw.copy()
+    df_te = df_te_raw.copy()
+    df_te["orig_idx"] = np.arange(len(df_te))
 
-    tier_a_unsw = ["dur", "spkts", "dpkts", "sbytes", "dbytes"]
-    # Check that tier A features exist
-    assert all(c in df.columns for c in tier_a_unsw)
+    tier_a_unsw = ["dur", "spkts", "dpkts", "sinpkt", "dinpkt"]
+    assert all(c in df_te.columns for c in tier_a_unsw)
 
-    # Perform stable deduplication on features + label_raw
-    df["label_raw"] = df["attack_cat"].fillna("Normal").astype(str).str.strip()
+    df_tr["label_raw"] = df_tr["attack_cat"].fillna("Normal").astype(str).str.strip()
+    df_te["label_raw"] = df_te["attack_cat"].fillna("Normal").astype(str).str.strip()
     dedup_cols = tier_a_unsw + ["label_raw"]
 
-    df_dedup = df.drop_duplicates(subset=dedup_cols, keep="first").copy()
+    tr_dedup = df_tr.drop_duplicates(subset=dedup_cols, keep="first").copy()
+    te_dedup = df_te.drop_duplicates(subset=dedup_cols, keep="first").copy()
 
-    # Verify that every row in df_dedup matches the exact raw row at orig_idx
-    for row in df_dedup.head(100).itertuples():
-        orig_row = df_raw.iloc[row.orig_idx]
+    # Verify that every row in te_dedup matches the exact raw row at orig_idx
+    for row in te_dedup.head(200).itertuples():
+        orig_row = df_te_raw.iloc[row.orig_idx]
         assert orig_row["attack_cat"].strip() == row.label_raw
         for c in tier_a_unsw:
             assert orig_row[c] == getattr(row, c)
 
-    # Verify the authoritative class counts for 5-feature Tier A dedup
-    counts = df_dedup["label_raw"].value_counts().to_dict()
+    # Cross-partition straddler removal
+    tr_tuples = set(tuple(x) for x in tr_dedup[tier_a_unsw].itertuples(index=False, name=None))
+    te_is_straddle = [tuple(x) in tr_tuples for x in te_dedup[tier_a_unsw].itertuples(index=False, name=None)]
+    te_final = te_dedup.loc[~pd.Series(te_is_straddle, index=te_dedup.index)].copy()
+
+    # Verify authoritative post-straddler counts for 5-feature Tier A dedup test partition
+    counts = te_final["label_raw"].value_counts().to_dict()
     assert counts["Normal"] == 29097
     assert counts["Exploits"] == 7030
     assert counts["Generic"] == 540
@@ -231,7 +239,7 @@ def test_unsw_label_alignment_integrity():
     assert counts["Backdoor"] == 136
     assert counts["Analysis"] == 124
     assert counts["Worms"] == 38
-    assert len(df_dedup) == 43689
+    assert len(te_final) == 43689
 
 
 
