@@ -582,11 +582,13 @@ def evaluate_cell_models(
 
         cell_results[m_name] = {
             "model_obj": model,
+            "scaler": scaler if m_name in ("XGBoost", "RandomForest") else scaler_log,
             "y_te": y_te, "p_te": p_te,
             "val_auroc": val_auc,
             "auroc": auroc,
             "prauc": prauc,
             "lift": lift,
+            "post_dedup_prevalence": prevalence,
             "source_threshold": float(th_src),
             "cm_source": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
             "tpr_source": tpr_src, "fpr_source": fpr_src,
@@ -1069,7 +1071,7 @@ def main():
     # Item 9: Random-Drop Baseline Reconciliation & Dedup-Lift with identical training set
     print("\n--- ITEM 9: CONSISTENCY CHECKS ---")
     xgb_headline = res_c2u_part["XGBoost"]["model_obj"]
-    drop_base_auroc = float(roc_auc_score(y_u_te_a, xgb_headline.predict_proba(_sanitize_matrix(RobustScaler().fit(X_c_tr_a).transform(X_u_te_a)))[:, 1]))
+    drop_base_auroc = float(roc_auc_score(y_u_te_a, res_c2u_part["XGBoost"]["p_te"]))
     print(f"Random Drop Baseline AUROC: {drop_base_auroc:.4f}")
     print(f"Headline AUROC (CIC -> UNSW Target Test): {res_c2u_part['XGBoost']['auroc']:.4f}")
     print(f"Reconciliation: Baseline ({drop_base_auroc:.4f}) == Headline ({res_c2u_part['XGBoost']['auroc']:.4f}) -> MATCH CONFIRMED!")
@@ -1081,7 +1083,7 @@ def main():
     raw_prev = float(y_raw_te.mean())
     X_raw_te = extract_feature_matrix(raw_u_test, is_cic=False)
 
-    s_c_eval = RobustScaler().fit(X_c_tr_a)
+    s_c_eval = res_c2u_part["XGBoost"]["scaler"]
     p_raw_te = xgb_headline.predict_proba(_sanitize_matrix(s_c_eval.transform(X_raw_te)))[:, 1]
     auroc_raw = float(roc_auc_score(y_raw_te, p_raw_te))
     pr_r, rc_r, _ = precision_recall_curve(y_raw_te, p_raw_te)
@@ -1147,7 +1149,7 @@ def main():
         out = {}
         for m, d in cell_dict.items():
             if m.startswith("_"): continue
-            out[m] = {k: v for k, v in d.items() if k not in ("model_obj", "y_te", "p_te")}
+            out[m] = {k: v for k, v in d.items() if k not in ("model_obj", "scaler", "y_te", "p_te")}
         return out
 
     final_report = {
