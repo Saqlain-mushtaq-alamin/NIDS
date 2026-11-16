@@ -192,3 +192,46 @@ def test_shared_feature_harmonization_magnitudes():
         np.testing.assert_allclose(aligned_cic[col], aligned_unsw[col])
 
 
+def test_unsw_label_alignment_integrity():
+    """Verify that UNSW deduplication maintains 1:1 row alignment between features and labels."""
+    unsw_test_path = Path("data/raw/unsw-nb15/UNSW_NB15_testing-set.csv")
+    if not unsw_test_path.exists():
+        pytest.skip("UNSW raw data not present")
+
+    df_raw = pd.read_csv(unsw_test_path)
+    df = df_raw.copy()
+    df["orig_idx"] = np.arange(len(df))
+
+    tier_a_unsw = ["dur", "spkts", "dpkts", "sbytes", "dbytes"]
+    # Check that tier A features exist
+    assert all(c in df.columns for c in tier_a_unsw)
+
+    # Perform stable deduplication on features + label_raw
+    df["label_raw"] = df["attack_cat"].fillna("Normal").astype(str).str.strip()
+    dedup_cols = tier_a_unsw + ["label_raw"]
+
+    df_dedup = df.drop_duplicates(subset=dedup_cols, keep="first").copy()
+
+    # Verify that every row in df_dedup matches the exact raw row at orig_idx
+    for row in df_dedup.head(100).itertuples():
+        orig_row = df_raw.iloc[row.orig_idx]
+        assert orig_row["attack_cat"].strip() == row.label_raw
+        for c in tier_a_unsw:
+            assert orig_row[c] == getattr(row, c)
+
+    # Verify the authoritative class counts for 5-feature Tier A dedup
+    counts = df_dedup["label_raw"].value_counts().to_dict()
+    assert counts["Normal"] == 29097
+    assert counts["Exploits"] == 7030
+    assert counts["Generic"] == 540
+    assert counts["Fuzzers"] == 3499
+    assert counts["Reconnaissance"] == 1866
+    assert counts["DoS"] == 1166
+    assert counts["Shellcode"] == 193
+    assert counts["Backdoor"] == 136
+    assert counts["Analysis"] == 124
+    assert counts["Worms"] == 38
+    assert len(df_dedup) == 43689
+
+
+
