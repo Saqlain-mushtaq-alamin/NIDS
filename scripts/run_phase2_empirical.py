@@ -514,6 +514,42 @@ def run_single_feature_analysis(
         print(f"UNSW: {atk_name:<24} | {len(grp):<12,} | {row_aucs[0]:<9.4f} | {row_aucs[1]:<9.4f} | {row_aucs[2]:<9.4f} | {row_aucs[3]:<9.4f} | {row_aucs[4]:<9.4f}")
         per_class_aurocs[f"UNSW_{atk_name}"] = {"count": len(grp), "aurocs": dict(zip(common_names, row_aucs))}
 
+    # Matched-Pair Standalone Feature AUROC (Item 3)
+    print("\nMatched-Pair Standalone Feature AUROC (Item 3):")
+    print(f"{'Matched Pair & Class':<30} | {'flow_dur':<9} | {'tot_fpkt':<9} | {'tot_bpkt':<9} | {'fwd_iat':<9} | {'bwd_iat':<9}")
+    print("-" * 80)
+    matched_pairs_feat = {}
+    
+    # DoS Pair
+    cic_dos_mask = cic_df["label_raw"].isin(["DoS Hulk", "DoS GoldenEye", "DoS slowloris", "DoS Slowhttptest", "DDoS"]).values
+    c_dos_eval = b_mask_c | cic_dos_mask
+    c_dos_y = cic_dos_mask[c_dos_eval].astype(int)
+    c_dos_aucs = [float(roc_auc_score(c_dos_y, np.nan_to_num(pd.to_numeric(cic_df.loc[c_dos_eval, col], errors="coerce").values, nan=0.0))) for col in f_cic]
+    print(f"{'CIC DoS (All) vs Benign':<30} | {c_dos_aucs[0]:<9.4f} | {c_dos_aucs[1]:<9.4f} | {c_dos_aucs[2]:<9.4f} | {c_dos_aucs[3]:<9.4f} | {c_dos_aucs[4]:<9.4f}")
+    matched_pairs_feat["CIC_DoS"] = dict(zip(common_names, c_dos_aucs))
+
+    unsw_dos_mask = (unsw_df["label_raw"] == "DoS").values
+    u_dos_eval = b_mask_u | unsw_dos_mask
+    u_dos_y = unsw_dos_mask[u_dos_eval].astype(int)
+    u_dos_aucs = [float(roc_auc_score(u_dos_y, np.nan_to_num(pd.to_numeric(unsw_df.loc[u_dos_eval, col], errors="coerce").values, nan=0.0))) for col in f_unsw]
+    print(f"{'UNSW DoS vs Benign':<30} | {u_dos_aucs[0]:<9.4f} | {u_dos_aucs[1]:<9.4f} | {u_dos_aucs[2]:<9.4f} | {u_dos_aucs[3]:<9.4f} | {u_dos_aucs[4]:<9.4f}")
+    matched_pairs_feat["UNSW_DoS"] = dict(zip(common_names, u_dos_aucs))
+
+    # Reconnaissance / PortScan Pair
+    cic_scan_mask = (cic_df["label_raw"] == "PortScan").values
+    c_scan_eval = b_mask_c | cic_scan_mask
+    c_scan_y = cic_scan_mask[c_scan_eval].astype(int)
+    c_scan_aucs = [float(roc_auc_score(c_scan_y, np.nan_to_num(pd.to_numeric(cic_df.loc[c_scan_eval, col], errors="coerce").values, nan=0.0))) for col in f_cic]
+    print(f"{'CIC PortScan vs Benign':<30} | {c_scan_aucs[0]:<9.4f} | {c_scan_aucs[1]:<9.4f} | {c_scan_aucs[2]:<9.4f} | {c_scan_aucs[3]:<9.4f} | {c_scan_aucs[4]:<9.4f}")
+    matched_pairs_feat["CIC_PortScan"] = dict(zip(common_names, c_scan_aucs))
+
+    unsw_rec_mask = (unsw_df["label_raw"] == "Reconnaissance").values
+    u_rec_eval = b_mask_u | unsw_rec_mask
+    u_rec_y = unsw_rec_mask[u_rec_eval].astype(int)
+    u_rec_aucs = [float(roc_auc_score(u_rec_y, np.nan_to_num(pd.to_numeric(unsw_df.loc[u_rec_eval, col], errors="coerce").values, nan=0.0))) for col in f_unsw]
+    print(f"{'UNSW Recon vs Benign':<30} | {u_rec_aucs[0]:<9.4f} | {u_rec_aucs[1]:<9.4f} | {u_rec_aucs[2]:<9.4f} | {u_rec_aucs[3]:<9.4f} | {u_rec_aucs[4]:<9.4f}")
+    matched_pairs_feat["UNSW_Reconnaissance"] = dict(zip(common_names, u_rec_aucs))
+
     return {
         "standalone_aurocs": records,
         "sinpkt_vs_dinpkt": {
@@ -522,6 +558,7 @@ def run_single_feature_analysis(
             "sinpkt_auroc": auc_sin, "dinpkt_auroc": auc_din, "delta": auc_sin - auc_din,
         },
         "per_class_aurocs": per_class_aurocs,
+        "matched_pairs_aurocs": matched_pairs_feat,
     }
 
 
